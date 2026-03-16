@@ -9,11 +9,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### gRPC Sidecar
 
-- [ ] **GRPC-01**: gRPC server binary imports PicoClaw as Go library (using `ProcessDirect()` API)
-- [ ] **GRPC-02**: Bidirectional streaming RPC for interactive chat sessions
-- [ ] **GRPC-03**: Unary RPC for single-shot queries
-- [ ] **GRPC-04**: Health check RPC for readiness/liveness probes
-- [ ] **GRPC-05**: Session isolation per gRPC client connection
+- [x] **GRPC-01**: gRPC server binary imports PicoClaw as Go library (using `ProcessDirect()` API)
+- [x] **GRPC-02**: Bidirectional streaming RPC for interactive chat sessions
+- [x] **GRPC-03**: Unary RPC for single-shot queries
+- [x] **GRPC-04**: Health check RPC for readiness/liveness probes
+- [x] **GRPC-05**: Session isolation per gRPC client connection
 
 ### CLI Management
 
@@ -42,7 +42,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **K8S-01**: Kubernetes manifests target emberchat cluster (rancher-based)
 - [ ] **K8S-02**: Label-based instance discovery (`app.kubernetes.io/*` labels)
 - [ ] **K8S-03**: API keys stored in Kubernetes Secrets (not plaintext env vars)
-- [ ] **K8S-04**: K8s liveness/readiness probes wired to health check endpoint
+- [x] **K8S-04**: K8s liveness/readiness probes wired to health check endpoint
 
 ### Build & Deploy Pipeline
 
@@ -91,11 +91,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GRPC-01 | Phase 1 | Pending |
-| GRPC-02 | Phase 1 | Pending |
-| GRPC-03 | Phase 1 | Pending |
-| GRPC-04 | Phase 1 | Pending |
-| GRPC-05 | Phase 1 | Pending |
+| GRPC-01 | Phase 1 | Complete |
+| GRPC-02 | Phase 1 | Complete |
+| GRPC-03 | Phase 1 | Complete |
+| GRPC-04 | Phase 1 | Complete |
+| GRPC-05 | Phase 1 | Complete |
 | CLI-01 | Phase 2 | Pending |
 | CLI-02 | Phase 2 | Pending |
 | CLI-03 | Phase 2 | Pending |
@@ -112,7 +112,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | K8S-01 | Phase 3 | Pending |
 | K8S-02 | Phase 2 | Pending |
 | K8S-03 | Phase 2 | Pending |
-| K8S-04 | Phase 1 | Pending |
+| K8S-04 | Phase 1 | Complete |
 | BLD-01 | Phase 3 | Pending |
 | BLD-02 | Phase 3 | Pending |
 | BLD-03 | Phase 3 | Pending |
