@@ -28,11 +28,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A gRPC client can send a single-shot query and receive a complete response via unary RPC
   4. Kubernetes liveness and readiness probes pass against the health check endpoint
   5. Two simultaneous gRPC client connections maintain isolated sessions (different session keys, independent conversation state)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Go module init, proto definition, code generation, test scaffolds (RED)
+- [ ] 01-02-PLAN.md — gRPC server implementation, health checks, sidecar binary (GREEN)
 
 ### Phase 2: CLI + K8s Integration
 **Goal**: Developers can manage the full lifecycle of named PicoClaw instances on the emberchat cluster from a single `eclaw` binary
@@ -73,6 +73,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Proto + Sidecar | 0/2 | Not started | - |
+| 1. Proto + Sidecar | 0/2 | Planning complete | - |
 | 2. CLI + K8s Integration | 0/3 | Not started | - |
 | 3. Build + Deploy Pipeline | 0/2 | Not started | - |
