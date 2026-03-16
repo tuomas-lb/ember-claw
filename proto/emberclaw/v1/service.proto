@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package emberclaw.v1;
+
+option go_package = "github.com/LastBotInc/ember-claw/gen/emberclaw/v1;emberclaw";
+
+service PicoClawService {
+  // Bidirectional streaming for interactive chat sessions (GRPC-02)
+  rpc Chat(stream ChatRequest) returns (stream ChatResponse);
+
+  // Single-shot query (GRPC-03)
+  rpc Query(QueryRequest) returns (QueryResponse);
+
+  // Instance status (used by CLI)
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+message ChatRequest {
+  string message = 1;
+  // session_key is optional; if empty, server assigns one per connection
+  string session_key = 2;
+}
+
+message ChatResponse {
+  string text = 1;
+  bool done = 2;   // true when response is complete
+  string error = 3;
+}
+
+message QueryRequest {
+  string message = 1;
+  string session_key = 2;  // optional
+}
+
+message QueryResponse {
+  string text = 1;
+  string error = 2;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  bool ready = 1;
+  string model = 2;
+  string provider = 3;
+  int64 uptime_seconds = 4;
+}
