@@ -17,11 +17,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### CLI Management
 
-- [ ] **CLI-01**: `eclaw deploy <name>` creates a named PicoClaw instance (Deployment + Service + PVC)
-- [ ] **CLI-02**: `eclaw list` shows all managed instances with status
-- [ ] **CLI-03**: `eclaw delete <name>` tears down instance (with PVC deletion prompt)
-- [ ] **CLI-04**: `eclaw status <name>` shows instance health, uptime, and config
-- [ ] **CLI-05**: `eclaw logs <name>` streams pod logs with `--follow` support
+- [x] **CLI-01**: `eclaw deploy <name>` creates a named PicoClaw instance (Deployment + Service + PVC)
+- [x] **CLI-02**: `eclaw list` shows all managed instances with status
+- [x] **CLI-03**: `eclaw delete <name>` tears down instance (with PVC deletion prompt)
+- [x] **CLI-04**: `eclaw status <name>` shows instance health, uptime, and config
+- [x] **CLI-05**: `eclaw logs <name>` streams pod logs with `--follow` support
 
 ### CLI Chat
 
@@ -31,17 +31,17 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Deployment Configuration
 
-- [ ] **CONF-01**: User-chosen instance names (e.g., `picoclaw-research`)
-- [ ] **CONF-02**: Configurable AI provider per instance (API keys via K8s Secrets, model, endpoint)
-- [ ] **CONF-03**: Configurable resource limits per instance (CPU/memory requests and limits)
-- [ ] **CONF-04**: Custom environment variables per instance
-- [ ] **CONF-05**: Persistent storage (PVC) per instance survives pod restarts
+- [x] **CONF-01**: User-chosen instance names (e.g., `picoclaw-research`)
+- [x] **CONF-02**: Configurable AI provider per instance (API keys via K8s Secrets, model, endpoint)
+- [x] **CONF-03**: Configurable resource limits per instance (CPU/memory requests and limits)
+- [x] **CONF-04**: Custom environment variables per instance
+- [x] **CONF-05**: Persistent storage (PVC) per instance survives pod restarts
 
 ### Kubernetes Integration
 
 - [ ] **K8S-01**: Kubernetes manifests target emberchat cluster (rancher-based)
-- [ ] **K8S-02**: Label-based instance discovery (`app.kubernetes.io/*` labels)
-- [ ] **K8S-03**: API keys stored in Kubernetes Secrets (not plaintext env vars)
+- [x] **K8S-02**: Label-based instance discovery (`app.kubernetes.io/*` labels)
+- [x] **K8S-03**: API keys stored in Kubernetes Secrets (not plaintext env vars)
 - [x] **K8S-04**: K8s liveness/readiness probes wired to health check endpoint
 
 ### Build & Deploy Pipeline

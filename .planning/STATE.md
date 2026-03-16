@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-02-PLAN.md (gRPC server + sidecar binary). Phase 1 complete.
-last_updated: "2026-03-16T11:13:12.946Z"
-last_activity: 2026-03-16 -- Completed 01-01 (proto + test scaffolds)
+stopped_at: Completed 02-01-PLAN.md (K8s client abstraction layer with fake-clientset tests).
+last_updated: "2026-03-16T12:14:42Z"
+last_activity: 2026-03-16 -- Completed 02-01 (K8s client, labels, resource CRUD)
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  total_plans: 3
+  completed_plans: 3
+  percent: 43
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** Effortless deployment and interaction with named PicoClaw instances -- from `make deploy` to chatting with a running instance should be trivially simple.
-**Current focus:** Phase 1: Proto + Sidecar
+**Current focus:** Phase 2: CLI + K8s Integration
 
 ## Current Position
 
-Phase: 1 of 3 (Proto + Sidecar)
-Plan: 1 of 2 in current phase
+Phase: 2 of 3 (CLI + K8s Integration)
+Plan: 1 of 3 in current phase (02-01 complete, advancing to 02-02)
 Status: In progress
-Last activity: 2026-03-16 -- Completed 01-01 (proto + test scaffolds)
+Last activity: 2026-03-16 -- Completed 02-01 (K8s client, labels, resource CRUD)
 
-Progress: [██████████] 100%
+Progress: [████░░░░░░] 43%
 
 ## Performance Metrics
 
@@ -43,14 +43,16 @@ Progress: [██████████] 100%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-proto-sidecar | 1/2 | 6 min | 6 min |
+| 01-proto-sidecar | 2/2 | ~12 min | 6 min |
+| 02-cli-k8s-integration | 1/3 | 9 min | 9 min |
 
 **Recent Trend:**
-- Last 5 plans: 6 min
-- Trend: -
+- Last 5 plans: 6 min, 9 min
+- Trend: stable
 
 *Updated after each plan completion*
 | Phase 01-proto-sidecar P02 | 3 | 2 tasks | 6 files |
+| Phase 02-cli-k8s-integration P01 | 9 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -68,6 +70,10 @@ Recent decisions affecting current work:
 - [Phase 01-02]: grpchealth.Serving constant does not exist in grpc-go v1.79.2 -- use healthpb.HealthCheckResponse_SERVING from grpc_health_v1 package
 - [Phase 01-02]: Query handler returns errors in QueryResponse.Error field (not gRPC status codes) for structured client response
 - [Phase 01-02]: go mod tidy required after adding explicit picoclaw pkg imports in cmd/sidecar to pull full transitive dep tree
+- [02-01]: client-go resolved to v0.35.2 by Go MVS despite requesting v0.33.0; no conflicts with picoclaw dep tree
+- [02-01]: kubernetes.Interface used in Client struct (not *kubernetes.Clientset) to allow fake clientset injection in tests
+- [02-01]: DeleteInstance uses label-selector list-then-delete pattern (fake clientset does not support DeleteCollection reliably)
+- [02-01]: ConfigMap always created in DeployInstance even when CustomEnv is empty (keeps Deployment spec consistent)
 
 ### Pending Todos
 
@@ -81,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-16T11:10:02.320Z
-Stopped at: Completed 01-02-PLAN.md (gRPC server + sidecar binary). Phase 1 complete.
+Last session: 2026-03-16T12:14:42Z
+Stopped at: Completed 02-01-PLAN.md (K8s client abstraction layer with fake-clientset tests).
 Resume file: None

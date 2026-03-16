@@ -47,7 +47,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — K8s client abstraction, labels, resource CRUD with fake-clientset tests
+- [x] 02-01-PLAN.md — K8s client abstraction, labels, resource CRUD with fake-clientset tests (completed 2026-03-16)
 - [ ] 02-02-PLAN.md — Cobra CLI binary with deploy, list, delete, status, logs subcommands
 - [ ] 02-03-PLAN.md — gRPC client, port-forward, interactive/single-shot chat command
 
@@ -74,5 +74,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Proto + Sidecar | 2/2 | Complete    | 2026-03-16 |
-| 2. CLI + K8s Integration | 0/3 | Not started | - |
+| 2. CLI + K8s Integration | 1/3 | In progress | - |
 | 3. Build + Deploy Pipeline | 0/2 | Not started | - |
