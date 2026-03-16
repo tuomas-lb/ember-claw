@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Completed 02-02-PLAN.md (Cobra CLI subcommands: deploy, list, delete, status, logs)"
-last_updated: "2026-03-16T12:22:56.835Z"
+stopped_at: "Completed 02-03-PLAN.md (gRPC client + chat subcommand: DialSidecar, PortForwardPod, interactive/single-shot chat)"
+last_updated: "2026-03-16T12:28:52.693Z"
 last_activity: 2026-03-16 -- Completed 02-01 (K8s client, labels, resource CRUD)
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 43
 ---
 
@@ -54,6 +54,7 @@ Progress: [████░░░░░░] 43%
 | Phase 01-proto-sidecar P02 | 3 | 2 tasks | 6 files |
 | Phase 02-cli-k8s-integration P01 | 9 | 2 tasks | 7 files |
 | Phase 02-cli-k8s-integration P02 | 4 | 2 tasks | 10 files |
+| Phase 02-cli-k8s-integration P03 | 4 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Recent decisions affecting current work:
 - [Phase 02-02]: InstanceSummary field names (DeploymentName/DesiredReplicas/ReadyReplicas) from 02-01 differ from plan spec; list.go derives STATUS from replica counts
 - [Phase 02-02]: main.go imports only internal/cli (zero picoclaw imports) per RESEARCH anti-pattern doc
 - [Phase 02-02]: PersistentPreRunE skips k8s.NewClient for help/completion commands -- eclaw --help works without kubeconfig
+- [Phase 02-03]: bufconn tests use grpc.NewClient with passthrough:///bufconn target and ContextDialer for in-memory gRPC testing
+- [Phase 02-03]: PortForwardPod nil-guards restConfig to give clear error when called from fake-clientset test contexts
 
 ### Pending Todos
 
@@ -91,6 +94,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-16T12:22:56.833Z
-Stopped at: Completed 02-02-PLAN.md (Cobra CLI subcommands: deploy, list, delete, status, logs)
+Last session: 2026-03-16T12:28:52.691Z
+Stopped at: Completed 02-03-PLAN.md (gRPC client + chat subcommand: DialSidecar, PortForwardPod, interactive/single-shot chat)
 Resume file: None

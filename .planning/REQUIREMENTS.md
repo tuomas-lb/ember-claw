@@ -25,9 +25,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### CLI Chat
 
-- [ ] **CHAT-01**: `eclaw chat <name>` enters interactive terminal chat via gRPC stream
-- [ ] **CHAT-02**: `eclaw chat <name> -m "message"` sends single-shot query and prints response
-- [ ] **CHAT-03**: CLI auto-establishes port-forward to target pod for gRPC connection
+- [x] **CHAT-01**: `eclaw chat <name>` enters interactive terminal chat via gRPC stream
+- [x] **CHAT-02**: `eclaw chat <name> -m "message"` sends single-shot query and prints response
+- [x] **CHAT-03**: CLI auto-establishes port-forward to target pod for gRPC connection
 
 ### Deployment Configuration
 
@@ -101,9 +101,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CLI-03 | Phase 2 | Complete |
 | CLI-04 | Phase 2 | Complete |
 | CLI-05 | Phase 2 | Complete |
-| CHAT-01 | Phase 2 | Pending |
-| CHAT-02 | Phase 2 | Pending |
-| CHAT-03 | Phase 2 | Pending |
+| CHAT-01 | Phase 2 | Complete |
+| CHAT-02 | Phase 2 | Complete |
+| CHAT-03 | Phase 2 | Complete |
 | CONF-01 | Phase 2 | Complete |
 | CONF-02 | Phase 2 | Complete |
 | CONF-03 | Phase 2 | Complete |

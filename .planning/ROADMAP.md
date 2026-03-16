@@ -13,7 +13,7 @@ Ember-Claw delivers a Kubernetes deployment toolkit for PicoClaw AI assistant in
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Proto + Sidecar** - gRPC server binary importing PicoClaw as library with bidirectional chat, single-shot query, and health checks (completed 2026-03-16)
-- [ ] **Phase 2: CLI + K8s Integration** - Go CLI tool managing full instance lifecycle (deploy/list/delete/status/logs/chat) via client-go and gRPC
+- [x] **Phase 2: CLI + K8s Integration** - Go CLI tool managing full instance lifecycle (deploy/list/delete/status/logs/chat) via client-go and gRPC (completed 2026-03-16)
 - [ ] **Phase 3: Build + Deploy Pipeline** - Dockerfile, Make targets, interactive deployment wizard, and K8s manifests for the emberchat cluster
 
 ## Phase Details
@@ -74,5 +74,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Proto + Sidecar | 2/2 | Complete    | 2026-03-16 |
-| 2. CLI + K8s Integration | 2/3 | In Progress|  |
+| 2. CLI + K8s Integration | 3/3 | Complete   | 2026-03-16 |
 | 3. Build + Deploy Pipeline | 0/2 | Not started | - |
