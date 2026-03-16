@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Go module init, proto definition, code generation, test scaffolds (RED)
-- [ ] 01-02-PLAN.md — gRPC server implementation, health checks, sidecar binary (GREEN)
+- [x] 01-02-PLAN.md — gRPC server implementation, health checks, sidecar binary (GREEN)
 
 ### Phase 2: CLI + K8s Integration
 **Goal**: Developers can manage the full lifecycle of named PicoClaw instances on the emberchat cluster from a single `eclaw` binary
@@ -44,12 +44,12 @@ Plans:
   3. `eclaw delete <name>` tears down all resources for an instance, prompting before PVC deletion
   4. `eclaw chat <name>` opens an interactive terminal session via gRPC bidirectional stream, and `eclaw chat <name> -m "message"` sends a single-shot query -- both using auto-established port-forward
   5. Instances are configurable at deploy time: AI provider/model/API key (stored as K8s Secret), CPU/memory limits, custom env vars, and user-chosen names
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md — K8s client abstraction, labels, resource CRUD with fake-clientset tests
+- [ ] 02-02-PLAN.md — Cobra CLI binary with deploy, list, delete, status, logs subcommands
+- [ ] 02-03-PLAN.md — gRPC client, port-forward, interactive/single-shot chat command
 
 ### Phase 3: Build + Deploy Pipeline
 **Goal**: Complete workflow from `make deploy-picoclaw` to chatting with a running instance, matching the umbrella repo's build conventions
