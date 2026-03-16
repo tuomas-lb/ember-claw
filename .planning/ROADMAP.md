@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Go module init, proto definition, code generation, test scaffolds (RED)
+- [x] 01-01-PLAN.md — Go module init, proto definition, code generation, test scaffolds (RED)
 - [ ] 01-02-PLAN.md — gRPC server implementation, health checks, sidecar binary (GREEN)
 
 ### Phase 2: CLI + K8s Integration
@@ -73,6 +73,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Proto + Sidecar | 0/2 | Planning complete | - |
+| 1. Proto + Sidecar | 1/2 | In progress | - |
 | 2. CLI + K8s Integration | 0/3 | Not started | - |
 | 3. Build + Deploy Pipeline | 0/2 | Not started | - |
