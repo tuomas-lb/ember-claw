@@ -3,6 +3,7 @@ module github.com/LastBotInc/ember-claw
 go 1.25.7
 
 require (
+	github.com/chzyer/readline v1.5.1
 	github.com/fatih/color v1.18.0
 	github.com/google/uuid v1.6.0
 	github.com/olekukonko/tablewriter v1.1.3

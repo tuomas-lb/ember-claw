@@ -40,6 +40,7 @@ func NewRootCommand() *cobra.Command {
 		newDeleteCommand(),
 		newStatusCommand(),
 		newLogsCommand(),
+		newChatCommand(),
 	)
 
 	return root
