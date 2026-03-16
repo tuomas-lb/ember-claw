@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-01-PLAN.md (K8s client abstraction layer with fake-clientset tests).
-last_updated: "2026-03-16T12:14:42Z"
+stopped_at: "Completed 02-02-PLAN.md (Cobra CLI subcommands: deploy, list, delete, status, logs)"
+last_updated: "2026-03-16T12:22:56.835Z"
 last_activity: 2026-03-16 -- Completed 02-01 (K8s client, labels, resource CRUD)
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 5
+  completed_plans: 4
   percent: 43
 ---
 
@@ -53,6 +53,7 @@ Progress: [████░░░░░░] 43%
 *Updated after each plan completion*
 | Phase 01-proto-sidecar P02 | 3 | 2 tasks | 6 files |
 | Phase 02-cli-k8s-integration P01 | 9 | 2 tasks | 7 files |
+| Phase 02-cli-k8s-integration P02 | 4 | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,9 @@ Recent decisions affecting current work:
 - [02-01]: kubernetes.Interface used in Client struct (not *kubernetes.Clientset) to allow fake clientset injection in tests
 - [02-01]: DeleteInstance uses label-selector list-then-delete pattern (fake clientset does not support DeleteCollection reliably)
 - [02-01]: ConfigMap always created in DeployInstance even when CustomEnv is empty (keeps Deployment spec consistent)
+- [Phase 02-02]: InstanceSummary field names (DeploymentName/DesiredReplicas/ReadyReplicas) from 02-01 differ from plan spec; list.go derives STATUS from replica counts
+- [Phase 02-02]: main.go imports only internal/cli (zero picoclaw imports) per RESEARCH anti-pattern doc
+- [Phase 02-02]: PersistentPreRunE skips k8s.NewClient for help/completion commands -- eclaw --help works without kubeconfig
 
 ### Pending Todos
 
@@ -87,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-16T12:14:42Z
-Stopped at: Completed 02-01-PLAN.md (K8s client abstraction layer with fake-clientset tests).
+Last session: 2026-03-16T12:22:56.833Z
+Stopped at: Completed 02-02-PLAN.md (Cobra CLI subcommands: deploy, list, delete, status, logs)
 Resume file: None

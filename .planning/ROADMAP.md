@@ -74,5 +74,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Proto + Sidecar | 2/2 | Complete    | 2026-03-16 |
-| 2. CLI + K8s Integration | 1/3 | In progress | - |
+| 2. CLI + K8s Integration | 2/3 | In Progress|  |
 | 3. Build + Deploy Pipeline | 0/2 | Not started | - |
