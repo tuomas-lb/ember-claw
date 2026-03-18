@@ -48,8 +48,8 @@ Plans:
 
 Plans:
 - [x] 02-01-PLAN.md — K8s client abstraction, labels, resource CRUD with fake-clientset tests (completed 2026-03-16)
-- [ ] 02-02-PLAN.md — Cobra CLI binary with deploy, list, delete, status, logs subcommands
-- [ ] 02-03-PLAN.md — gRPC client, port-forward, interactive/single-shot chat command
+- [x] 02-02-PLAN.md — Cobra CLI binary with deploy, list, delete, status, logs subcommands
+- [x] 02-03-PLAN.md — gRPC client, port-forward, interactive/single-shot chat command
 
 ### Phase 3: Build + Deploy Pipeline
 **Goal**: Complete workflow from `make deploy-picoclaw` to chatting with a running instance, matching the umbrella repo's build conventions
@@ -60,11 +60,11 @@ Plans:
   2. `make build-picoclaw` builds the container image and `make push-picoclaw` pushes it to `reg.r.lastbot.com`
   3. `make deploy-picoclaw` launches an interactive wizard that prompts for instance name, AI provider, API key, model, resource limits, and environment variables, then deploys to the emberchat cluster
   4. Kubernetes manifests target the emberchat cluster with correct namespace, labels, and resource definitions
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — Dockerfile, .dockerignore, and Makefile with build/push/deploy targets
+- [ ] 03-02-PLAN.md — RBAC verification and end-to-end pipeline validation on emberchat cluster
 
 ## Progress
 
