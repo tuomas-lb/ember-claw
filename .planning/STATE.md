@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Completed 02-03-PLAN.md (gRPC client + chat subcommand: DialSidecar, PortForwardPod, interactive/single-shot chat)"
-last_updated: "2026-03-16T12:32:48.541Z"
-last_activity: 2026-03-16 -- Completed 02-01 (K8s client, labels, resource CRUD)
+stopped_at: "Completed 03-01-PLAN.md (Dockerfile, .dockerignore, Makefile with build/push/deploy targets)"
+last_updated: "2026-03-18T20:52:53Z"
+last_activity: 2026-03-18 -- Completed 03-01 (Dockerfile, .dockerignore, Makefile)
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 5
-  completed_plans: 5
-  percent: 43
+  completed_plans: 6
+  percent: 57
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-13)
 
 ## Current Position
 
-Phase: 2 of 3 (CLI + K8s Integration)
-Plan: 1 of 3 in current phase (02-01 complete, advancing to 02-02)
+Phase: 3 of 3 (Build + Deploy Pipeline)
+Plan: 1 of 2 in current phase (03-01 complete, advancing to 03-02)
 Status: In progress
-Last activity: 2026-03-16 -- Completed 02-01 (K8s client, labels, resource CRUD)
+Last activity: 2026-03-18 -- Completed 03-01 (Dockerfile, .dockerignore, Makefile)
 
-Progress: [████░░░░░░] 43%
+Progress: [██████░░░░] 57%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [████░░░░░░] 43%
 | Phase 02-cli-k8s-integration P01 | 9 | 2 tasks | 7 files |
 | Phase 02-cli-k8s-integration P02 | 4 | 2 tasks | 10 files |
 | Phase 02-cli-k8s-integration P03 | 4 | 2 tasks | 7 files |
+| Phase 03-build-deploy-pipeline P01 | 16 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,10 @@ Recent decisions affecting current work:
 - [Phase 02-02]: PersistentPreRunE skips k8s.NewClient for help/completion commands -- eclaw --help works without kubeconfig
 - [Phase 02-03]: bufconn tests use grpc.NewClient with passthrough:///bufconn target and ContextDialer for in-memory gRPC testing
 - [Phase 02-03]: PortForwardPod nil-guards restConfig to give clear error when called from fake-clientset test contexts
+- [Phase 03-01]: GO ?= $(shell which go ...) variable used instead of bare `go` to handle environments where /usr/local/go/bin is not on PATH
+- [Phase 03-01]: SHELL := /bin/bash + export PATH in Makefile ensures grep/sed/cut/head available in all recipe shells
+- [Phase 03-01]: deploy-picoclaw has build-eclaw as prerequisite to auto-compile eclaw binary before wizard runs
+- [Phase 03-01]: API key collected with read -s (silent) to prevent terminal echo; never logged after collection
 
 ### Pending Todos
 
@@ -94,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-16T12:28:52.691Z
-Stopped at: Completed 02-03-PLAN.md (gRPC client + chat subcommand: DialSidecar, PortForwardPod, interactive/single-shot chat)
+Last session: 2026-03-18T20:52:53Z
+Stopped at: Completed 03-01-PLAN.md (Dockerfile, .dockerignore, Makefile with build/push/deploy targets)
 Resume file: None

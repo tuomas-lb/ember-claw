@@ -39,17 +39,17 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Kubernetes Integration
 
-- [ ] **K8S-01**: Kubernetes manifests target emberchat cluster (rancher-based)
+- [x] **K8S-01**: Kubernetes manifests target emberchat cluster (rancher-based)
 - [x] **K8S-02**: Label-based instance discovery (`app.kubernetes.io/*` labels)
 - [x] **K8S-03**: API keys stored in Kubernetes Secrets (not plaintext env vars)
 - [x] **K8S-04**: K8s liveness/readiness probes wired to health check endpoint
 
 ### Build & Deploy Pipeline
 
-- [ ] **BLD-01**: Multi-stage Dockerfile builds sidecar binary with PicoClaw
-- [ ] **BLD-02**: `make build-picoclaw` builds container image (linux/amd64)
-- [ ] **BLD-03**: `make push-picoclaw` pushes image to `reg.r.lastbot.com`
-- [ ] **BLD-04**: `make deploy-picoclaw` starts interactive deployment wizard (name, AI config, resources, env vars)
+- [x] **BLD-01**: Multi-stage Dockerfile builds sidecar binary with PicoClaw
+- [x] **BLD-02**: `make build-picoclaw` builds container image (linux/amd64)
+- [x] **BLD-03**: `make push-picoclaw` pushes image to `reg.r.lastbot.com`
+- [x] **BLD-04**: `make deploy-picoclaw` starts interactive deployment wizard (name, AI config, resources, env vars)
 
 ## v2 Requirements
 

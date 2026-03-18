@@ -63,7 +63,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Dockerfile, .dockerignore, and Makefile with build/push/deploy targets
+- [x] 03-01-PLAN.md — Dockerfile, .dockerignore, and Makefile with build/push/deploy targets (completed 2026-03-18)
 - [ ] 03-02-PLAN.md — RBAC verification and end-to-end pipeline validation on emberchat cluster
 
 ## Progress
@@ -75,4 +75,4 @@ Phases execute in numeric order: 1 -> 2 -> 3
 |-------|----------------|--------|-----------|
 | 1. Proto + Sidecar | 2/2 | Complete    | 2026-03-16 |
 | 2. CLI + K8s Integration | 3/3 | Complete    | 2026-03-16 |
-| 3. Build + Deploy Pipeline | 0/2 | Not started | - |
+| 3. Build + Deploy Pipeline | 1/2 | In progress | - |
