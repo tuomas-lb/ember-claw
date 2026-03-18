@@ -1,0 +1,7 @@
+go.work
+go.work.sum
+.planning/
+bin/
+.git/
+.ember-build-numbers
+*.md
