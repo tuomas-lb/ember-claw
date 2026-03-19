@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 
 	"github.com/LastBotInc/ember-claw/internal/k8s"
@@ -12,6 +13,14 @@ import (
 
 // validInstanceName matches a valid DNS subdomain component for a PicoClaw instance name.
 var validInstanceName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$`)
+
+// envDefault returns the flag value if non-empty, otherwise the env var value.
+func envDefault(flagVal, envVar string) string {
+	if flagVal != "" {
+		return flagVal
+	}
+	return os.Getenv(envVar)
+}
 
 func newDeployCommand() *cobra.Command {
 	var (
@@ -40,16 +49,27 @@ func newDeployCommand() *cobra.Command {
 				return fmt.Errorf("invalid instance name %q: must match ^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$", name)
 			}
 
+			// Apply env var defaults for flags not explicitly set.
+			provider = envDefault(provider, "ECLAW_PROVIDER")
+			model = envDefault(model, "ECLAW_MODEL")
+			image = envDefault(image, "ECLAW_IMAGE")
+
+			if provider == "" {
+				return fmt.Errorf("provider required: use --provider or set ECLAW_PROVIDER in .env")
+			}
+			if model == "" {
+				return fmt.Errorf("model required: use --model or set ECLAW_MODEL in .env")
+			}
+
 			resolvedKey, err := resolveAPIKey(apiKey, provider)
 			if err != nil {
 				return err
 			}
-			apiKey = resolvedKey
 
 			opts := k8s.DeployOptions{
 				Name:          name,
 				Provider:      provider,
-				APIKey:        apiKey,
+				APIKey:        resolvedKey,
 				Model:         model,
 				Image:         image,
 				CPURequest:    cpuRequest,
@@ -70,10 +90,10 @@ func newDeployCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (e.g. anthropic, openai)")
-	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key (or set <PROVIDER>_API_KEY env var, e.g. OPENAI_API_KEY)")
-	cmd.Flags().StringVar(&model, "model", "", "Model identifier (e.g. claude-opus-4-5)")
-	cmd.Flags().StringVar(&image, "image", "reg.r.lastbot.com/ember-claw-sidecar:latest", "Container image for the sidecar")
+	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (or ECLAW_PROVIDER env)")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key (or <PROVIDER>_API_KEY env)")
+	cmd.Flags().StringVar(&model, "model", "", "Model identifier (or ECLAW_MODEL env)")
+	cmd.Flags().StringVar(&image, "image", "reg.r.lastbot.com/ember-claw-sidecar:latest", "Container image (or ECLAW_IMAGE env)")
 	cmd.Flags().StringVar(&cpuRequest, "cpu-request", "100m", "CPU request for the instance pod")
 	cmd.Flags().StringVar(&cpuLimit, "cpu-limit", "500m", "CPU limit for the instance pod")
 	cmd.Flags().StringVar(&memoryRequest, "memory-request", "128Mi", "Memory request for the instance pod")
@@ -81,9 +101,6 @@ func newDeployCommand() *cobra.Command {
 	cmd.Flags().StringVar(&storageSize, "storage-size", "1Gi", "PVC storage size")
 	cmd.Flags().StringVar(&storageClass, "storage-class", "", "Storage class for the PVC (uses cluster default if empty)")
 	cmd.Flags().StringToStringVar(&customEnv, "env", nil, "Additional environment variables (key=value pairs, can be repeated)")
-
-	_ = cmd.MarkFlagRequired("provider")
-	_ = cmd.MarkFlagRequired("model")
 
 	return cmd
 }

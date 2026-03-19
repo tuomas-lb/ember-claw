@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -37,6 +38,64 @@ type DeployOptions struct {
 	StorageSize   string            // PVC size (default: "1Gi")
 	StorageClass  string            // Optional storage class name
 	CustomEnv     map[string]string // Additional env vars
+}
+
+// picoClawConfig is the subset of PicoClaw's config.json we generate for deployment.
+type picoClawConfig struct {
+	Agents struct {
+		Defaults struct {
+			ModelName string `json:"model_name"`
+			Workspace string `json:"workspace"`
+		} `json:"defaults"`
+	} `json:"agents"`
+	ModelList []picoClawModelEntry `json:"model_list"`
+}
+
+type picoClawModelEntry struct {
+	ModelName string `json:"model_name"`
+	Model     string `json:"model"`
+	APIKey    string `json:"api_key,omitempty"`
+	APIBase   string `json:"api_base,omitempty"`
+}
+
+// buildPicoClawConfig generates a config.json for a PicoClaw instance.
+// The API key is embedded directly in the model_list entry.
+// This config.json is stored in a K8s Secret (not ConfigMap) to protect the key.
+func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
+	provider := strings.ToLower(opts.Provider)
+	modelID := opts.Model
+
+	// Build the protocol/model-id reference for model_list
+	modelRef := provider + "/" + modelID
+
+	cfg := picoClawConfig{}
+	cfg.Agents.Defaults.ModelName = modelID
+	cfg.Agents.Defaults.Workspace = MountPath + "/workspace"
+
+	entry := picoClawModelEntry{
+		ModelName: modelID,
+		Model:     modelRef,
+		APIKey:    opts.APIKey,
+	}
+
+	// Set provider-specific API base URLs
+	switch provider {
+	case "anthropic":
+		entry.APIBase = "https://api.anthropic.com/v1"
+	case "openai":
+		entry.APIBase = "https://api.openai.com/v1"
+	case "gemini", "google":
+		entry.APIBase = "https://generativelanguage.googleapis.com/v1beta"
+	case "groq":
+		entry.APIBase = "https://api.groq.com/openai/v1"
+	case "deepseek":
+		entry.APIBase = "https://api.deepseek.com/v1"
+	case "openrouter":
+		entry.APIBase = "https://openrouter.ai/api/v1"
+	}
+
+	cfg.ModelList = []picoClawModelEntry{entry}
+	return cfg
 }
 
 // InstanceSummary holds a brief summary of a PicoClaw instance for list output.
@@ -85,7 +144,13 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 	pvcName := baseName + "-data"
 	instanceLabels := InstanceLabels(opts.Name)
 
-	// 1. Create Secret with API key and PicoClaw provider config (K8S-03, CONF-02).
+	// 1. Create Secret with config.json (contains API key in model_list) (K8S-03, CONF-02).
+	picoConfig := buildPicoClawConfig(opts)
+	configJSON, err := json.MarshalIndent(picoConfig, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal picoclaw config: %w", err)
+	}
+
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configSecretName,
@@ -93,9 +158,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 			Labels:    instanceLabels,
 		},
 		StringData: map[string]string{
-			"PICOCLAW_PROVIDERS_" + strings.ToUpper(opts.Provider) + "_API_KEY": opts.APIKey,
-			"PICOCLAW_AGENTS_DEFAULTS_PROVIDER":                                  opts.Provider,
-			"PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME":                                opts.Model,
+			"config.json": string(configJSON),
 		},
 	}
 	if _, err := c.cs.CoreV1().Secrets(c.namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
@@ -193,13 +256,6 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 							},
 							EnvFrom: []corev1.EnvFromSource{
 								{
-									SecretRef: &corev1.SecretEnvSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: configSecretName,
-										},
-									},
-								},
-								{
 									ConfigMapRef: &corev1.ConfigMapEnvSource{
 										LocalObjectReference: corev1.LocalObjectReference{
 											Name: customConfigMapName,
@@ -208,6 +264,10 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 								},
 							},
 							Env: []corev1.EnvVar{
+								{
+									Name:  "PICOCLAW_CONFIG",
+									Value: "/config/config.json",
+								},
 								{
 									Name:  "PICOCLAW_HOME",
 									Value: MountPath,
@@ -218,6 +278,11 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 								{
 									Name:      "data",
 									MountPath: MountPath,
+								},
+								{
+									Name:      "config",
+									MountPath: "/config",
+									ReadOnly:  true,
 								},
 							},
 							LivenessProbe: &corev1.Probe{
@@ -248,6 +313,17 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 							VolumeSource: corev1.VolumeSource{
 								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 									ClaimName: pvcName,
+								},
+							},
+						},
+						{
+							Name: "config",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: configSecretName,
+									Items: []corev1.KeyToPath{
+										{Key: "config.json", Path: "config.json"},
+									},
 								},
 							},
 						},
@@ -409,18 +485,27 @@ func (c *Client) GetInstanceStatus(ctx context.Context, name string) (*InstanceS
 		status.PodPhase = pods.Items[0].Status.Phase
 	}
 
-	// Get provider/model from secret
+	// Get provider/model from secret's config.json
 	secret, err := c.cs.CoreV1().Secrets(c.namespace).Get(ctx, baseName+"-config", metav1.GetOptions{})
 	if err == nil {
-		if v, ok := secret.StringData["PICOCLAW_AGENTS_DEFAULTS_PROVIDER"]; ok {
-			status.Provider = v
-		} else if v, ok := secret.Data["PICOCLAW_AGENTS_DEFAULTS_PROVIDER"]; ok {
-			status.Provider = string(v)
+		configJSON := ""
+		if v, ok := secret.StringData["config.json"]; ok {
+			configJSON = v
+		} else if v, ok := secret.Data["config.json"]; ok {
+			configJSON = string(v)
 		}
-		if v, ok := secret.StringData["PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME"]; ok {
-			status.Model = v
-		} else if v, ok := secret.Data["PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME"]; ok {
-			status.Model = string(v)
+		if configJSON != "" {
+			var cfg picoClawConfig
+			if err := json.Unmarshal([]byte(configJSON), &cfg); err == nil {
+				status.Model = cfg.Agents.Defaults.ModelName
+				if len(cfg.ModelList) > 0 {
+					// Extract provider from model ref (e.g. "gemini/gemini-2.5-flash" -> "gemini")
+					parts := strings.SplitN(cfg.ModelList[0].Model, "/", 2)
+					if len(parts) > 0 {
+						status.Provider = parts[0]
+					}
+				}
+			}
 		}
 	}
 

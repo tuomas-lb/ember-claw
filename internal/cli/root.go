@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+
 	"github.com/LastBotInc/ember-claw/internal/envfile"
 	"github.com/LastBotInc/ember-claw/internal/k8s"
 	"github.com/spf13/cobra"
@@ -23,6 +25,10 @@ func NewRootCommand() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Load .env file (does not override existing env vars).
 			_ = envfile.Load(".env")
+
+			// Apply env var defaults for flags not explicitly set on the command line.
+			applyEnvDefault(cmd, "namespace", "ECLAW_NAMESPACE")
+			applyEnvDefault(cmd, "kubeconfig", "ECLAW_KUBECONFIG")
 
 			// Skip client creation for commands that don't need cluster access.
 			switch cmd.Name() {
@@ -49,4 +55,15 @@ func NewRootCommand() *cobra.Command {
 	)
 
 	return root
+}
+
+// applyEnvDefault sets a flag's value from an env var if the flag was not explicitly set.
+func applyEnvDefault(cmd *cobra.Command, flagName, envVar string) {
+	f := cmd.Root().PersistentFlags().Lookup(flagName)
+	if f == nil || f.Changed {
+		return
+	}
+	if v := os.Getenv(envVar); v != "" {
+		f.Value.Set(v)
+	}
 }

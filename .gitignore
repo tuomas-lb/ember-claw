@@ -1,6 +1,7 @@
 # Go workspace files (local dev only, not for CI/container builds)
 go.work
 go.work.sum
+.env
 
 # IDE
 .idea/

@@ -108,7 +108,7 @@ func TestResourceLabels(t *testing.T) {
 	}
 }
 
-// TestAPIKeyInSecret verifies API key is in Secret StringData, not Deployment env.
+// TestAPIKeyInSecret verifies API key is in Secret's config.json, not Deployment env.
 func TestAPIKeyInSecret(t *testing.T) {
 	client := newTestClient()
 	ctx := context.Background()
@@ -119,24 +119,20 @@ func TestAPIKeyInSecret(t *testing.T) {
 
 	fakeCS := client.cs.(*fake.Clientset)
 
-	// Secret must contain PICOCLAW_PROVIDERS_{PROVIDER}_API_KEY
+	// Secret must contain config.json with the API key embedded in model_list
 	secrets, _ := fakeCS.CoreV1().Secrets(testNamespace).List(ctx, metav1.ListOptions{})
 	require.Len(t, secrets.Items, 1)
 	secret := secrets.Items[0]
 
-	expectedKey := "PICOCLAW_PROVIDERS_ANTHROPIC_API_KEY"
-	// Check StringData (before encoding) or Data (after encoding)
-	found := false
-	if val, ok := secret.StringData[expectedKey]; ok && val == opts.APIKey {
-		found = true
+	configJSON := ""
+	if val, ok := secret.StringData["config.json"]; ok {
+		configJSON = val
+	} else if val, ok := secret.Data["config.json"]; ok {
+		configJSON = string(val)
 	}
-	// Also check Data field (fake clientset may convert StringData to Data)
-	if !found {
-		if val, ok := secret.Data[expectedKey]; ok && string(val) == opts.APIKey {
-			found = true
-		}
-	}
-	assert.True(t, found, "Secret must contain %s with the API key value", expectedKey)
+	require.NotEmpty(t, configJSON, "Secret must contain config.json")
+	assert.Contains(t, configJSON, opts.APIKey, "config.json must contain the API key")
+	assert.Contains(t, configJSON, opts.Model, "config.json must contain the model name")
 
 	// Deployment must NOT have the API key in env.value directly
 	deployments, _ := fakeCS.AppsV1().Deployments(testNamespace).List(ctx, metav1.ListOptions{})
@@ -145,21 +141,19 @@ func TestAPIKeyInSecret(t *testing.T) {
 	for _, container := range deployment.Spec.Template.Spec.Containers {
 		for _, env := range container.Env {
 			if strings.Contains(env.Name, "API_KEY") {
-				assert.Empty(t, env.Value, "API key must not be in Deployment env.value; use Secret+envFrom instead")
+				assert.Empty(t, env.Value, "API key must not be in Deployment env.value")
 			}
 		}
 	}
 
-	// Deployment must have envFrom referencing the secret
-	hasSecretRef := false
-	for _, container := range deployment.Spec.Template.Spec.Containers {
-		for _, envFrom := range container.EnvFrom {
-			if envFrom.SecretRef != nil {
-				hasSecretRef = true
-			}
+	// Deployment must have Secret mounted as volume at /config
+	hasSecretVol := false
+	for _, vol := range deployment.Spec.Template.Spec.Volumes {
+		if vol.Secret != nil && vol.Secret.SecretName == "picoclaw-research-config" {
+			hasSecretVol = true
 		}
 	}
-	assert.True(t, hasSecretRef, "Deployment container must use envFrom.secretRef to inject Secret env vars")
+	assert.True(t, hasSecretVol, "Deployment must mount Secret as config volume")
 }
 
 // TestResourceLimits verifies CPU/memory resource limits are applied to the container spec.
@@ -383,7 +377,8 @@ func TestGetInstanceStatus(t *testing.T) {
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	// Pre-create the config secret with provider/model info
+	// Pre-create the config secret with config.json
+	configJSON := `{"agents":{"defaults":{"model_name":"claude-3-5-sonnet-20241022"}},"model_list":[{"model_name":"claude-3-5-sonnet-20241022","model":"anthropic/claude-3-5-sonnet-20241022","api_key":"sk-ant-test"}]}`
 	_, err = fakeCS.CoreV1().Secrets(testNamespace).Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "picoclaw-research-config",
@@ -391,9 +386,7 @@ func TestGetInstanceStatus(t *testing.T) {
 			Labels:    InstanceLabels("research"),
 		},
 		StringData: map[string]string{
-			"PICOCLAW_PROVIDERS_ANTHROPIC_API_KEY":  "sk-ant-test",
-			"PICOCLAW_AGENTS_DEFAULTS_PROVIDER":     "anthropic",
-			"PICOCLAW_AGENTS_DEFAULTS_MODEL_NAME":   "claude-3-5-sonnet-20241022",
+			"config.json": configJSON,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -405,6 +398,8 @@ func TestGetInstanceStatus(t *testing.T) {
 	assert.Equal(t, "research", status.Name)
 	assert.Equal(t, int32(1), status.DesiredReplicas)
 	assert.Equal(t, int32(1), status.ReadyReplicas)
+	assert.Equal(t, "claude-3-5-sonnet-20241022", status.Model)
+	assert.Equal(t, "anthropic", status.Provider)
 }
 
 // TestFindRunningPod verifies FindRunningPod returns the pod name when running.
@@ -515,7 +510,7 @@ func TestDeployInstance_CustomImage(t *testing.T) {
 	assert.Equal(t, "reg.r.lastbot.com/ember-claw-sidecar:0.1.5", container.Image)
 }
 
-// TestDeployInstance_GeminiProvider verifies Gemini-specific env vars are set correctly.
+// TestDeployInstance_GeminiProvider verifies Gemini config.json is generated correctly.
 func TestDeployInstance_GeminiProvider(t *testing.T) {
 	client := newTestClient()
 	ctx := context.Background()
@@ -532,21 +527,16 @@ func TestDeployInstance_GeminiProvider(t *testing.T) {
 	require.Len(t, secrets.Items, 1)
 
 	secret := secrets.Items[0]
-	// Check Gemini-specific env var name
-	found := false
-	for key, val := range secret.StringData {
-		if key == "PICOCLAW_PROVIDERS_GEMINI_API_KEY" && val == "AIza-test-key" {
-			found = true
-		}
+	configJSON := ""
+	if val, ok := secret.StringData["config.json"]; ok {
+		configJSON = val
+	} else if val, ok := secret.Data["config.json"]; ok {
+		configJSON = string(val)
 	}
-	if !found {
-		for key, val := range secret.Data {
-			if key == "PICOCLAW_PROVIDERS_GEMINI_API_KEY" && string(val) == "AIza-test-key" {
-				found = true
-			}
-		}
-	}
-	assert.True(t, found, "Secret must contain PICOCLAW_PROVIDERS_GEMINI_API_KEY")
+	require.NotEmpty(t, configJSON)
+	assert.Contains(t, configJSON, "AIza-test-key", "config.json must contain the Gemini API key")
+	assert.Contains(t, configJSON, "gemini/gemini-2.5-flash", "config.json must contain the protocol/model ref")
+	assert.Contains(t, configJSON, "generativelanguage.googleapis.com", "config.json must contain Gemini API base")
 }
 
 // TestGetInstanceLogs verifies log retrieval path (happy path with a running pod).
