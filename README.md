@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/emberclaw-logo.png" alt="Ember-Claw" width="200">
+</p>
+
 # Ember-Claw
 
 Kubernetes deployment toolkit for running multiple [PicoClaw](https://github.com/sipeed/picoclaw) AI assistant instances on a cluster. Includes a gRPC sidecar that imports PicoClaw as a Go library and a CLI tool (`eclaw`) for full instance lifecycle management.
