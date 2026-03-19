@@ -67,6 +67,7 @@ build-picoclaw: ## Build Docker image for ember-claw-sidecar (use EMBER_VERSION=
 	docker buildx build --platform linux/amd64 \
 		-f $(DOCKERFILE) \
 		-t $(IMAGE_REGISTRY)/$(SERVICE_NAME):$$IMAGE_TAG \
+		-t $(IMAGE_REGISTRY)/$(SERVICE_NAME):latest \
 		.
 
 push-picoclaw: ## Push Docker image to reg.r.lastbot.com (run build-picoclaw first)
@@ -84,7 +85,9 @@ push-picoclaw: ## Push Docker image to reg.r.lastbot.com (run build-picoclaw fir
 		IMAGE_TAG="production"; \
 	fi; \
 	echo "Pushing $(IMAGE_REGISTRY)/$(SERVICE_NAME):$$IMAGE_TAG"; \
-	docker push $(IMAGE_REGISTRY)/$(SERVICE_NAME):$$IMAGE_TAG
+	docker push $(IMAGE_REGISTRY)/$(SERVICE_NAME):$$IMAGE_TAG; \
+	echo "Pushing $(IMAGE_REGISTRY)/$(SERVICE_NAME):latest"; \
+	docker push $(IMAGE_REGISTRY)/$(SERVICE_NAME):latest
 
 build-push-picoclaw: build-picoclaw push-picoclaw ## Build and push Docker image in one step
 

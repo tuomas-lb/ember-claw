@@ -48,13 +48,19 @@ type DeployOptions struct {
 type picoClawConfig struct {
 	Agents struct {
 		Defaults struct {
-			ModelName              string `json:"model_name"`
-			Workspace              string `json:"workspace"`
-			RestrictToWorkspace    bool   `json:"restrict_to_workspace"`
-			AllowReadOutsideWS    bool   `json:"allow_read_outside_workspace"`
-			MaxToolIterations      int    `json:"max_tool_iterations"`
+			ModelName           string `json:"model_name"`
+			Workspace           string `json:"workspace"`
+			RestrictToWorkspace bool   `json:"restrict_to_workspace"`
+			AllowReadOutsideWS bool   `json:"allow_read_outside_workspace"`
+			MaxToolIterations   int    `json:"max_tool_iterations"`
 		} `json:"defaults"`
 	} `json:"agents"`
+	Tools struct {
+		Exec struct {
+			EnableDenyPatterns bool `json:"enable_deny_patterns"`
+			AllowRemote        bool `json:"allow_remote"`
+		} `json:"exec"`
+	} `json:"tools"`
 	ModelList []picoClawModelEntry `json:"model_list"`
 }
 
@@ -81,6 +87,9 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 	cfg.Agents.Defaults.RestrictToWorkspace = false
 	cfg.Agents.Defaults.AllowReadOutsideWS = true
 	cfg.Agents.Defaults.MaxToolIterations = 50
+	// Disable command deny patterns — safe in isolated container.
+	cfg.Tools.Exec.EnableDenyPatterns = false
+	cfg.Tools.Exec.AllowRemote = true
 
 	entry := picoClawModelEntry{
 		ModelName: modelID,
