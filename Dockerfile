@@ -54,7 +54,10 @@ RUN pip install --no-cache-dir requests beautifulsoup4 pyyaml
 
 # Set up Go environment for picoclaw user
 ENV GOPATH=/home/picoclaw/go
-ENV PATH="/home/picoclaw/go/bin:/usr/local/go/bin:${PATH}"
+# pip installs to PVC so packages survive pod restarts
+ENV PYTHONUSERBASE=/home/picoclaw/.picoclaw/python
+ENV PATH="/home/picoclaw/.picoclaw/python/bin:/home/picoclaw/go/bin:/usr/local/go/bin:${PATH}"
+ENV PIP_USER=1
 
 USER picoclaw
 WORKDIR /home/picoclaw
