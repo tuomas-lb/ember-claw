@@ -575,6 +575,41 @@ func (c *Client) GetInstanceStatus(ctx context.Context, name string) (*InstanceS
 	return status, nil
 }
 
+// SetSecret adds or updates a key-value pair in the instance's Secret.
+// The pod must be restarted to pick up changes (rollout restart on the Deployment).
+func (c *Client) SetSecret(ctx context.Context, instanceName, key, value string) error {
+	secretName := resourceName(instanceName) + "-config"
+
+	secret, err := c.cs.CoreV1().Secrets(c.namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get secret %s: %w", secretName, err)
+	}
+
+	if secret.Data == nil {
+		secret.Data = make(map[string][]byte)
+	}
+	secret.Data[key] = []byte(value)
+
+	if _, err := c.cs.CoreV1().Secrets(c.namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update secret %s: %w", secretName, err)
+	}
+
+	// Trigger a rollout restart so the pod picks up the new env var.
+	deploy, err := c.cs.AppsV1().Deployments(c.namespace).Get(ctx, resourceName(instanceName), metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get deployment: %w", err)
+	}
+	if deploy.Spec.Template.Annotations == nil {
+		deploy.Spec.Template.Annotations = make(map[string]string)
+	}
+	deploy.Spec.Template.Annotations["eclaw/restartedAt"] = time.Now().Format(time.RFC3339)
+	if _, err := c.cs.AppsV1().Deployments(c.namespace).Update(ctx, deploy, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("restart deployment: %w", err)
+	}
+
+	return nil
+}
+
 // GetInstanceLogs returns a log stream from the running pod for the named instance.
 // If follow is true, the stream remains open for new log lines.
 // tailLines specifies the number of recent lines to retrieve (0 = all).
