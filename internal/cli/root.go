@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/LastBotInc/ember-claw/internal/envfile"
 	"github.com/LastBotInc/ember-claw/internal/k8s"
 	"github.com/spf13/cobra"
 )
@@ -20,6 +21,9 @@ func NewRootCommand() *cobra.Command {
 		// PersistentPreRunE initialises the k8s client for every subcommand that
 		// needs it (all except help and completion).
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Load .env file (does not override existing env vars).
+			_ = envfile.Load(".env")
+
 			// Skip client creation for commands that don't need cluster access.
 			switch cmd.Name() {
 			case "help", "completion", "models":
