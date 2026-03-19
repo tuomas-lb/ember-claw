@@ -46,6 +46,9 @@ RUN addgroup -g 1000 picoclaw && \
 
 COPY --from=builder /sidecar /usr/local/bin/sidecar
 
+# Allow pip install without virtual env (safe in container)
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
 # Set up Go environment for picoclaw user
 ENV GOPATH=/home/picoclaw/go
 ENV PATH="/home/picoclaw/go/bin:/usr/local/go/bin:${PATH}"

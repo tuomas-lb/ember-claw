@@ -48,8 +48,11 @@ type DeployOptions struct {
 type picoClawConfig struct {
 	Agents struct {
 		Defaults struct {
-			ModelName string `json:"model_name"`
-			Workspace string `json:"workspace"`
+			ModelName              string `json:"model_name"`
+			Workspace              string `json:"workspace"`
+			RestrictToWorkspace    bool   `json:"restrict_to_workspace"`
+			AllowReadOutsideWS    bool   `json:"allow_read_outside_workspace"`
+			MaxToolIterations      int    `json:"max_tool_iterations"`
 		} `json:"defaults"`
 	} `json:"agents"`
 	ModelList []picoClawModelEntry `json:"model_list"`
@@ -75,6 +78,9 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 	cfg := picoClawConfig{}
 	cfg.Agents.Defaults.ModelName = modelID
 	cfg.Agents.Defaults.Workspace = MountPath + "/workspace"
+	cfg.Agents.Defaults.RestrictToWorkspace = false
+	cfg.Agents.Defaults.AllowReadOutsideWS = true
+	cfg.Agents.Defaults.MaxToolIterations = 50
 
 	entry := picoClawModelEntry{
 		ModelName: modelID,
@@ -109,6 +115,8 @@ type InstanceSummary struct {
 	DesiredReplicas int32
 	ReadyReplicas   int32
 	PodPhase        corev1.PodPhase // Actual pod phase (more reliable than deployment status on some clusters)
+	ContainerState  string          // e.g. "Running", "CrashLoopBackOff", "ImagePullBackOff", "Waiting"
+	Restarts        int32           // Total container restart count
 	Age             time.Duration
 }
 
@@ -414,14 +422,40 @@ func (c *Client) ListInstances(ctx context.Context) ([]InstanceSummary, error) {
 	pods, _ := c.cs.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: ManagedSelector(),
 	})
-	podPhaseByInstance := make(map[string]corev1.PodPhase)
+	type podInfo struct {
+		Phase          corev1.PodPhase
+		ContainerState string
+		Restarts       int32
+	}
+	podInfoByInstance := make(map[string]podInfo)
 	if pods != nil {
 		for _, p := range pods.Items {
 			name := p.Labels[LabelInstance]
-			// Prefer Running over other phases if multiple pods exist.
-			if existing, ok := podPhaseByInstance[name]; !ok || p.Status.Phase == corev1.PodRunning {
+			info := podInfo{Phase: p.Status.Phase}
+
+			// Extract container-level status (the real source of truth).
+			for _, cs := range p.Status.ContainerStatuses {
+				info.Restarts += cs.RestartCount
+				if cs.State.Waiting != nil {
+					// Waiting reasons like CrashLoopBackOff, ImagePullBackOff, ErrImagePull
+					info.ContainerState = cs.State.Waiting.Reason
+				} else if cs.State.Terminated != nil {
+					info.ContainerState = "Terminated:" + cs.State.Terminated.Reason
+				} else if cs.State.Running != nil && info.ContainerState == "" {
+					info.ContainerState = "Running"
+				}
+			}
+			// Also check init containers.
+			for _, cs := range p.Status.InitContainerStatuses {
+				if cs.State.Waiting != nil {
+					info.ContainerState = "Init:" + cs.State.Waiting.Reason
+				}
+			}
+
+			// Prefer the most informative pod (Running > others, or newest).
+			if existing, ok := podInfoByInstance[name]; !ok || p.Status.Phase == corev1.PodRunning {
 				_ = existing
-				podPhaseByInstance[name] = p.Status.Phase
+				podInfoByInstance[name] = info
 			}
 		}
 	}
@@ -437,12 +471,15 @@ func (c *Client) ListInstances(ctx context.Context) ([]InstanceSummary, error) {
 		if !d.CreationTimestamp.IsZero() {
 			age = time.Since(d.CreationTimestamp.Time)
 		}
+		info := podInfoByInstance[instanceName]
 		summaries = append(summaries, InstanceSummary{
 			Name:            instanceName,
 			DeploymentName:  d.Name,
 			DesiredReplicas: desired,
 			ReadyReplicas:   d.Status.ReadyReplicas,
-			PodPhase:        podPhaseByInstance[instanceName],
+			PodPhase:        info.Phase,
+			ContainerState:  info.ContainerState,
+			Restarts:        info.Restarts,
 			Age:             age,
 		})
 	}

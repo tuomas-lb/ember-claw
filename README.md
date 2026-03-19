@@ -40,7 +40,7 @@ Each instance runs as a single-container pod. The sidecar binary embeds PicoClaw
 - Go 1.25+
 - Docker with buildx
 - `kubectl` with access to target cluster
-- Kubeconfig for the emberchat cluster
+- Kubeconfig for the target cluster
 
 ### Build
 
@@ -71,25 +71,24 @@ Prompts for: instance name, AI provider, API key (hidden input), and model name.
 ```bash
 make deploy-picoclaw \
   NAME=research \
-  PROVIDER=anthropic \
-  API_KEY=sk-ant-... \
-  MODEL=claude-sonnet-4-20250514 \
+  PROVIDER=gemini \
+  API_KEY=AIza... \
+  MODEL=gemini-2.5-flash \
   EMBER_VERSION=0.1
 ```
 
 **Direct CLI:**
 ```bash
 ./bin/eclaw deploy research \
-  --provider anthropic \
-  --api-key sk-ant-... \
-  --model claude-sonnet-4-20250514 \
-  --kubeconfig /path/to/kubeconfig
+  --provider gemini \
+  --api-key AIza... \
+  --model gemini-2.5-flash
 ```
 
 ### Manage Instances
 
 ```bash
-# List all instances
+# List all instances (shows real container status, restarts, age)
 eclaw list
 
 # Show instance details
@@ -116,6 +115,91 @@ Opens a readline prompt. Type messages, get responses. `Ctrl+C` or `Ctrl+D` to e
 eclaw chat research -m "What is the capital of France?"
 ```
 
+## Configuration
+
+### `.env` File
+
+The `eclaw` CLI auto-loads a `.env` file from the current directory. This is the recommended way to configure API keys and kubeconfig for local development. Existing environment variables are **not** overridden.
+
+```bash
+# .env - API keys per provider
+ANTHROPIC_API_KEY=sk-ant-api03-...
+OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=AIza...
+GROQ_API_KEY=gsk_...
+DEEPSEEK_API_KEY=sk-...
+
+# Integration credentials
+LINEAR_API_KEY=lin_api_...
+LINEAR_TEAM_ID=<team-uuid>
+SLACK_BOT_TOKEN=xoxb-...
+
+# Kubeconfig (base64-encoded, for CI/automation)
+KUBECONFIG_BASE64=<base64-encoded-kubeconfig>
+```
+
+When `--api-key` is not passed to `deploy` or `models`, eclaw automatically resolves it from the provider-specific env var (e.g., `GEMINI_API_KEY` for `--provider gemini`).
+
+### Kubeconfig Resolution
+
+The CLI resolves kubeconfig in this order:
+
+1. `--kubeconfig` flag (explicit path)
+2. `KUBECONFIG_BASE64` env var (base64-decoded, written to temp file — for CI/automation)
+3. `KUBECONFIG` env var (standard path)
+4. `~/.kube/config` (default)
+
+### Instance Secrets
+
+Inject environment variables into a running instance's K8s Secret. The pod is automatically restarted to pick up changes.
+
+```bash
+# Add a Telegram bot token
+eclaw set-secret test-claw-1 TELEGRAM_BOT_TOKEN xoxb-abc123
+
+# Add a Linear API key
+eclaw set-secret research LINEAR_API_KEY lin_api_xxx
+
+# Override PicoClaw configuration
+eclaw set-secret research PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS 100
+```
+
+All keys set via `set-secret` are stored in the instance's K8s Secret and injected as environment variables into the pod. PicoClaw reads many settings from env vars using the `PICOCLAW_` prefix.
+
+### PicoClaw Container Configuration
+
+Ember-claw generates a `config.json` for each instance with these container-optimized defaults:
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `restrict_to_workspace` | `false` | Allow tool execution outside workspace (safe in container) |
+| `allow_read_outside_workspace` | `true` | Allow reading files outside workspace |
+| `max_tool_iterations` | `50` | Max LLM tool call iterations per message (default PicoClaw is 20) |
+
+These can be overridden per-instance via `set-secret`:
+```bash
+eclaw set-secret my-instance PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS 100
+eclaw set-secret my-instance PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE true
+```
+
+### Container Runtime Environment
+
+The sidecar Docker image (Alpine 3.23) includes development tools for PicoClaw agents to use:
+
+| Tool | Purpose |
+|------|---------|
+| `curl`, `wget` | HTTP requests |
+| `jq` | JSON processing |
+| `bash` | Shell scripting |
+| `git` | Version control |
+| `python3`, `pip` | Python scripting (pip works without venv) |
+| `nodejs`, `npm` | JavaScript/Node.js |
+| `go` | Go programming |
+| `gcc`, `make` | Build tools |
+| `openssh-client` | SSH access |
+
+`PIP_BREAK_SYSTEM_PACKAGES=1` is set in the container so `pip install` works directly without creating a virtual environment.
+
 ## CLI Reference
 
 ### Global Flags
@@ -125,23 +209,16 @@ eclaw chat research -m "What is the capital of France?"
 | `--kubeconfig` | `$KUBECONFIG` or `~/.kube/config` | Path to kubeconfig |
 | `--namespace` | `picoclaw` | Kubernetes namespace |
 
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `KUBECONFIG` | Standard kubeconfig path (used when `--kubeconfig` not set) |
-| `KUBECONFIG_BASE64` | Base64-encoded kubeconfig content (for CI/automation) |
-
 ### Commands
 
 #### `eclaw deploy <name>`
 
-Create a named PicoClaw instance on the cluster.
+Create a named PicoClaw instance on the cluster. Creates the namespace automatically if it doesn't exist. Re-deploying to an existing name updates resources in place (upsert).
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--provider` | *required* | AI provider (`anthropic`, `openai`, `gemini`, etc.) |
-| `--api-key` | *required* | API key for the provider |
+| `--provider` | *required* | AI provider (`anthropic`, `openai`, `gemini`, `groq`, `deepseek`, `openrouter`, `copilot`) |
+| `--api-key` | from env | API key (auto-resolved from `<PROVIDER>_API_KEY` env var if not set) |
 | `--model` | *required* | Model identifier |
 | `--image` | `reg.r.lastbot.com/ember-claw-sidecar:latest` | Container image |
 | `--cpu-request` | `100m` | CPU request |
@@ -151,12 +228,15 @@ Create a named PicoClaw instance on the cluster.
 | `--storage-size` | `1Gi` | PVC size |
 | `--storage-class` | cluster default | Storage class |
 | `--env` | none | Custom env vars (`key=value`, repeatable) |
+| `--linear-api-key` | from env | Linear API key (or `LINEAR_API_KEY` env) |
+| `--linear-team-id` | from env | Linear team UUID (or `LINEAR_TEAM_ID` env) |
+| `--slack-bot-token` | from env | Slack bot token (or `SLACK_BOT_TOKEN` env) |
 
 Instance names must be valid DNS subdomain components: lowercase alphanumeric and hyphens, 3-63 chars.
 
 #### `eclaw list`
 
-List all managed instances with name, status, and age.
+List all managed instances with name, status, ready replicas, restart count, and age. Status reflects actual container state (e.g., `CrashLoopBackOff`, `ImagePullBackOff`) rather than just pod phase.
 
 #### `eclaw status <name>`
 
@@ -176,16 +256,57 @@ List available models from a provider and validate your API key.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--provider` | *required* | AI provider (`openai`, `gemini`, `anthropic`, `groq`, `deepseek`, `openrouter`) |
-| `--api-key` | *required* | API key to validate and list models for |
+| `--provider` | *required* | AI provider |
+| `--api-key` | from env | API key (auto-resolved from `<PROVIDER>_API_KEY` env var) |
 
 ```bash
 eclaw models --provider gemini --api-key AIza...
+eclaw models --provider openai  # uses OPENAI_API_KEY from .env
+```
+
+#### `eclaw set-secret <instance> <key> <value>`
+
+Add or update an environment variable in an instance's K8s Secret. The pod is automatically restarted to pick up the change.
+
+```bash
+eclaw set-secret test-claw-1 TELEGRAM_BOT_TOKEN abc123
+eclaw set-secret research LINEAR_API_KEY lin_api_xxx
+eclaw set-secret my-agent SLACK_BOT_TOKEN xoxb-xxx
 ```
 
 #### `eclaw chat <name>`
 
 Chat with a running instance via gRPC. Without `-m`, opens an interactive readline session. With `-m "message"`, sends a single query and exits.
+
+## Integration Tools
+
+PicoClaw instances can be deployed with built-in integrations for Linear and Slack. These tools are automatically registered when the corresponding API keys are present.
+
+### Linear
+
+Provides issue management: create, search, get, and update issues.
+
+```bash
+eclaw deploy my-agent --provider gemini --model gemini-2.5-flash \
+  --linear-api-key lin_api_xxx --linear-team-id <uuid>
+```
+
+Or set `LINEAR_API_KEY` and `LINEAR_TEAM_ID` in `.env`.
+
+### Slack
+
+Provides message sending and channel listing.
+
+```bash
+eclaw deploy my-agent --provider gemini --model gemini-2.5-flash \
+  --slack-bot-token xoxb-xxx
+```
+
+Or set `SLACK_BOT_TOKEN` in `.env`.
+
+### Adding Custom Integrations
+
+See [docs/tool-development.md](docs/tool-development.md) for how to add new tools.
 
 ## Make Targets
 
@@ -208,15 +329,22 @@ ember-claw/
 │   ├── eclaw/              # CLI entry point
 │   └── sidecar/            # gRPC sidecar entry point
 ├── internal/
-│   ├── cli/                # Cobra subcommands (deploy, list, delete, status, logs, chat, models)
-│   ├── grpcclient/         # gRPC client for CLI → sidecar communication
-│   ├── k8s/                # Kubernetes client, resource creation, port-forwarding
-│   ├── providers/          # Provider model listing (OpenAI, Gemini, Anthropic, etc.)
-│   └── server/             # gRPC service implementation, session management
+│   ├── cli/                # Cobra subcommands
+│   ├── envfile/            # .env file loader
+│   ├── grpcclient/         # gRPC client for CLI -> sidecar
+│   ├── k8s/                # K8s client, resources, port-forwarding
+│   ├── providers/          # Provider model listing
+│   ├── server/             # gRPC service, session management
+│   └── tools/              # PicoClaw tool integrations
+│       ├── linear/         #   Linear issue management
+│       └── slack/          #   Slack messaging
 ├── proto/emberclaw/v1/     # Protobuf service definition
 ├── gen/emberclaw/v1/       # Generated gRPC code
-├── Dockerfile              # Multi-stage build (golang:1.25-alpine → alpine:3.23)
+├── assets/brand/           # Logo and branding
+├── docs/                   # Documentation
+├── Dockerfile              # Multi-stage build (golang:1.25-alpine -> alpine:3.23)
 ├── Makefile                # Build, push, deploy orchestration
+├── .env                    # Local configuration (git-ignored)
 └── .ember-build-numbers    # Per-service build counter
 ```
 
@@ -238,21 +366,11 @@ Each deployed instance creates:
 |----------|-------------|---------|
 | Deployment | `picoclaw-<name>` | Sidecar pod running PicoClaw |
 | Service | `picoclaw-<name>` | Cluster-internal gRPC endpoint |
-| Secret | `picoclaw-<name>` | API key storage |
-| ConfigMap | `picoclaw-<name>` | PicoClaw config.json |
-| PVC | `picoclaw-<name>` | Persistent storage for sessions/workspace |
+| Secret | `picoclaw-<name>-config` | API keys + config.json + env vars |
+| ConfigMap | `picoclaw-<name>-env` | Custom environment variables |
+| PVC | `picoclaw-<name>-data` | Persistent storage for sessions/workspace |
 
-All resources are labeled with `app.kubernetes.io/managed-by: ember-claw` and `app.kubernetes.io/instance: <name>` for discovery.
-
-## Configuration
-
-The sidecar resolves PicoClaw config via the standard priority chain:
-
-1. `PICOCLAW_CONFIG` env var (full path to config.json)
-2. `$PICOCLAW_HOME/config.json`
-3. `~/.picoclaw/config.json`
-
-In containers, `PICOCLAW_HOME` is set to `/data/.picoclaw` (the PVC mount path).
+All resources are labeled with `app.kubernetes.io/managed-by: ember-claw` and `app.kubernetes.io/instance: <name>` for discovery. The namespace is auto-created if it doesn't exist.
 
 ## Development
 
@@ -266,3 +384,9 @@ go build ./... && go vet ./...
 # Regenerate protobuf (requires protoc, protoc-gen-go, protoc-gen-go-grpc)
 protoc --go_out=. --go-grpc_out=. proto/emberclaw/v1/service.proto
 ```
+
+## Documentation
+
+- [Deployment Guide](docs/deployment-guide.md) — step-by-step deploy and troubleshooting
+- [Architecture](docs/architecture.md) — design decisions and data flow
+- [Tool Development](docs/tool-development.md) — adding new PicoClaw integrations

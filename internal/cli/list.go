@@ -7,6 +7,7 @@ import (
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
+	"github.com/tuomas-lb/ember-claw/internal/k8s"
 )
 
 func newListCommand() *cobra.Command {
@@ -27,24 +28,16 @@ func newListCommand() *cobra.Command {
 			}
 
 			table := tablewriter.NewTable(os.Stdout)
-			table.Header("NAME", "STATUS", "READY", "AGE")
+			table.Header("NAME", "STATUS", "READY", "RESTARTS", "AGE")
 
 			rows := make([][]string, 0, len(instances))
 			for _, inst := range instances {
-				status := "Pending"
-				if inst.PodPhase == "Running" {
-					status = "Running"
-				} else if inst.ReadyReplicas >= inst.DesiredReplicas && inst.DesiredReplicas > 0 {
-					status = "Running"
-				} else if inst.ReadyReplicas > 0 {
-					status = "Degraded"
-				} else if inst.PodPhase != "" {
-					status = string(inst.PodPhase)
-				}
+				status := instanceStatus(inst)
 				rows = append(rows, []string{
 					inst.Name,
 					status,
 					fmt.Sprintf("%d/%d", inst.ReadyReplicas, inst.DesiredReplicas),
+					fmt.Sprintf("%d", inst.Restarts),
 					formatAge(inst.Age),
 				})
 			}
@@ -56,4 +49,29 @@ func newListCommand() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// instanceStatus returns a human-readable status string from container-level info.
+// Priority: container waiting reason > container state > pod phase > deployment ready count.
+func instanceStatus(inst k8s.InstanceSummary) string {
+	// Container-level state is the most accurate (CrashLoopBackOff, ImagePullBackOff, etc.)
+	if inst.ContainerState != "" && inst.ContainerState != "Running" {
+		return inst.ContainerState
+	}
+	if inst.ContainerState == "Running" && inst.ReadyReplicas >= inst.DesiredReplicas && inst.DesiredReplicas > 0 {
+		return "Running"
+	}
+	if inst.PodPhase == "Running" {
+		return "Running"
+	}
+	if inst.ReadyReplicas >= inst.DesiredReplicas && inst.DesiredReplicas > 0 {
+		return "Running"
+	}
+	if inst.ReadyReplicas > 0 {
+		return "Degraded"
+	}
+	if inst.PodPhase != "" {
+		return string(inst.PodPhase)
+	}
+	return "Pending"
 }
