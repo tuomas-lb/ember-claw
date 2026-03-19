@@ -34,8 +34,16 @@ func (c *Client) PortForwardPod(ctx context.Context, podName string, remotePort 
 	}
 
 	// Build the portforward sub-resource URL for the pod.
-	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", c.namespace, podName)
-	hostIP := strings.TrimLeft(c.restConfig.Host, "https://")
+	// Parse the host URL to preserve any base path (e.g., Rancher proxy paths like
+	// https://rancher.example.com/k8s/clusters/local).
+	podPath := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward", c.namespace, podName)
+
+	baseURL, err := url.Parse(c.restConfig.Host)
+	if err != nil {
+		return nil, fmt.Errorf("parse host URL: %w", err)
+	}
+	// Append the pod portforward path to any existing base path.
+	baseURL.Path = strings.TrimSuffix(baseURL.Path, "/") + podPath
 
 	transport, upgrader, err := spdy.RoundTripperFor(c.restConfig)
 	if err != nil {
@@ -46,7 +54,7 @@ func (c *Client) PortForwardPod(ctx context.Context, podName string, remotePort 
 		upgrader,
 		&http.Client{Transport: transport},
 		http.MethodPost,
-		&url.URL{Scheme: "https", Path: path, Host: hostIP},
+		baseURL,
 	)
 
 	stopChan := make(chan struct{}, 1)
