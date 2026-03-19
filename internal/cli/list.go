@@ -32,10 +32,14 @@ func newListCommand() *cobra.Command {
 			rows := make([][]string, 0, len(instances))
 			for _, inst := range instances {
 				status := "Pending"
-				if inst.ReadyReplicas >= inst.DesiredReplicas && inst.DesiredReplicas > 0 {
+				if inst.PodPhase == "Running" {
+					status = "Running"
+				} else if inst.ReadyReplicas >= inst.DesiredReplicas && inst.DesiredReplicas > 0 {
 					status = "Running"
 				} else if inst.ReadyReplicas > 0 {
 					status = "Degraded"
+				} else if inst.PodPhase != "" {
+					status = string(inst.PodPhase)
 				}
 				rows = append(rows, []string{
 					inst.Name,

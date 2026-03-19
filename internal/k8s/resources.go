@@ -105,6 +105,7 @@ type InstanceSummary struct {
 	DeploymentName  string
 	DesiredReplicas int32
 	ReadyReplicas   int32
+	PodPhase        corev1.PodPhase // Actual pod phase (more reliable than deployment status on some clusters)
 	Age             time.Duration
 }
 
@@ -387,6 +388,22 @@ func (c *Client) ListInstances(ctx context.Context) ([]InstanceSummary, error) {
 		return nil, fmt.Errorf("list deployments: %w", err)
 	}
 
+	// Also fetch all managed pods to get actual pod phase (more reliable on some clusters).
+	pods, _ := c.cs.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: ManagedSelector(),
+	})
+	podPhaseByInstance := make(map[string]corev1.PodPhase)
+	if pods != nil {
+		for _, p := range pods.Items {
+			name := p.Labels[LabelInstance]
+			// Prefer Running over other phases if multiple pods exist.
+			if existing, ok := podPhaseByInstance[name]; !ok || p.Status.Phase == corev1.PodRunning {
+				_ = existing
+				podPhaseByInstance[name] = p.Status.Phase
+			}
+		}
+	}
+
 	summaries := make([]InstanceSummary, 0, len(deployments.Items))
 	for _, d := range deployments.Items {
 		instanceName := d.Labels[LabelInstance]
@@ -403,6 +420,7 @@ func (c *Client) ListInstances(ctx context.Context) ([]InstanceSummary, error) {
 			DeploymentName:  d.Name,
 			DesiredReplicas: desired,
 			ReadyReplicas:   d.Status.ReadyReplicas,
+			PodPhase:        podPhaseByInstance[instanceName],
 			Age:             age,
 		})
 	}
