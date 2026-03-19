@@ -49,6 +49,9 @@ COPY --from=builder /sidecar /usr/local/bin/sidecar
 # Allow pip install without virtual env (safe in container)
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
+# Pre-install commonly needed Python packages
+RUN pip install --no-cache-dir requests beautifulsoup4 pyyaml
+
 # Set up Go environment for picoclaw user
 ENV GOPATH=/home/picoclaw/go
 ENV PATH="/home/picoclaw/go/bin:/usr/local/go/bin:${PATH}"
