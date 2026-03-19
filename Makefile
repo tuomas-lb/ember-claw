@@ -102,6 +102,16 @@ deploy-picoclaw: build-eclaw ## Deploy PicoClaw instance via interactive wizard 
 	CPU_LIM=$${CPU_LIM:-500m}; \
 	MEM_REQ=$${MEM_REQ:-128Mi}; \
 	MEM_LIM=$${MEM_LIM:-512Mi}; \
+	IMAGE=$${IMAGE:-}; \
+	if [ -z "$$IMAGE" ] && [ -n "$(EMBER_VERSION)" ] && [ -f $(BUILD_NUMBER_FILE) ]; then \
+		SERVICE_NAME="$(SERVICE_NAME)"; \
+		BUILD_NUMBER=$$(grep "^$$SERVICE_NAME:" $(BUILD_NUMBER_FILE) | head -1 | cut -d: -f2 || echo ""); \
+		if [ -n "$$BUILD_NUMBER" ]; then \
+			IMAGE="$(IMAGE_REGISTRY)/$$SERVICE_NAME:$(EMBER_VERSION).$$BUILD_NUMBER"; \
+		fi; \
+	fi; \
+	IMAGE_FLAG=""; \
+	if [ -n "$$IMAGE" ]; then IMAGE_FLAG="--image $$IMAGE"; fi; \
 	./bin/eclaw deploy $$NAME \
 		--provider $$PROVIDER \
 		--api-key $$API_KEY \
@@ -111,4 +121,5 @@ deploy-picoclaw: build-eclaw ## Deploy PicoClaw instance via interactive wizard 
 		--memory-request $$MEM_REQ \
 		--memory-limit $$MEM_LIM \
 		--kubeconfig $(KUBECONFIG_PATH) \
-		--namespace $(K8S_NAMESPACE)
+		--namespace $(K8S_NAMESPACE) \
+		$$IMAGE_FLAG
