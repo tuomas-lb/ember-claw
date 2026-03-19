@@ -10,6 +10,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -138,13 +139,18 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 		opts.StorageSize = DefaultStorageSize
 	}
 
+	// Ensure the namespace exists before creating resources.
+	if err := c.EnsureNamespace(ctx); err != nil {
+		return fmt.Errorf("ensure namespace: %w", err)
+	}
+
 	baseName := resourceName(opts.Name)
 	configSecretName := baseName + "-config"
 	customConfigMapName := baseName + "-env"
 	pvcName := baseName + "-data"
 	instanceLabels := InstanceLabels(opts.Name)
 
-	// 1. Create Secret with config.json (contains API key in model_list) (K8S-03, CONF-02).
+	// 1. Create or update Secret with config.json (contains API key in model_list) (K8S-03, CONF-02).
 	picoConfig := buildPicoClawConfig(opts)
 	configJSON, err := json.MarshalIndent(picoConfig, "", "  ")
 	if err != nil {
@@ -161,11 +167,15 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 			"config.json": string(configJSON),
 		},
 	}
-	if _, err := c.cs.CoreV1().Secrets(c.namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+	if _, err := c.cs.CoreV1().Secrets(c.namespace).Create(ctx, secret, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+		if _, err := c.cs.CoreV1().Secrets(c.namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update secret: %w", err)
+		}
+	} else if err != nil {
 		return fmt.Errorf("create secret: %w", err)
 	}
 
-	// 2. Create ConfigMap for custom environment variables (CONF-04).
+	// 2. Create or update ConfigMap for custom environment variables (CONF-04).
 	cmData := make(map[string]string)
 	for k, v := range opts.CustomEnv {
 		cmData[k] = v
@@ -178,11 +188,16 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 		},
 		Data: cmData,
 	}
-	if _, err := c.cs.CoreV1().ConfigMaps(c.namespace).Create(ctx, configMap, metav1.CreateOptions{}); err != nil {
+	if _, err := c.cs.CoreV1().ConfigMaps(c.namespace).Create(ctx, configMap, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+		if _, err := c.cs.CoreV1().ConfigMaps(c.namespace).Update(ctx, configMap, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update configmap: %w", err)
+		}
+	} else if err != nil {
 		return fmt.Errorf("create configmap: %w", err)
 	}
 
-	// 3. Create PVC for persistent storage (CONF-05).
+	// 3. Create PVC for persistent storage if it doesn't exist (CONF-05).
+	// PVCs are immutable once created, so skip if already exists.
 	storageQty := resource.MustParse(opts.StorageSize)
 	pvcSpec := corev1.PersistentVolumeClaimSpec{
 		AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
@@ -203,7 +218,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 		},
 		Spec: pvcSpec,
 	}
-	if _, err := c.cs.CoreV1().PersistentVolumeClaims(c.namespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil {
+	if _, err := c.cs.CoreV1().PersistentVolumeClaims(c.namespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create pvc: %w", err)
 	}
 
@@ -332,11 +347,15 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 			},
 		},
 	}
-	if _, err := c.cs.AppsV1().Deployments(c.namespace).Create(ctx, deployment, metav1.CreateOptions{}); err != nil {
+	if _, err := c.cs.AppsV1().Deployments(c.namespace).Create(ctx, deployment, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+		if _, err := c.cs.AppsV1().Deployments(c.namespace).Update(ctx, deployment, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update deployment: %w", err)
+		}
+	} else if err != nil {
 		return fmt.Errorf("create deployment: %w", err)
 	}
 
-	// 6. Create ClusterIP Service targeting the gRPC port (port 50051).
+	// 6. Create or update ClusterIP Service targeting the gRPC port (port 50051).
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      baseName,
@@ -351,7 +370,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 			},
 		},
 	}
-	if _, err := c.cs.CoreV1().Services(c.namespace).Create(ctx, svc, metav1.CreateOptions{}); err != nil {
+	if _, err := c.cs.CoreV1().Services(c.namespace).Create(ctx, svc, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create service: %w", err)
 	}
 

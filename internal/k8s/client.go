@@ -1,9 +1,13 @@
 package k8s
 
 import (
+	"context"
 	"encoding/base64"
 	"os"
 
+	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -58,4 +62,16 @@ func NewClient(kubeconfigPath, namespace string) (*Client, error) {
 // This is the primary constructor for tests using fake.NewSimpleClientset().
 func NewClientFromClientset(cs kubernetes.Interface, namespace string) *Client {
 	return &Client{cs: cs, namespace: namespace}
+}
+
+// EnsureNamespace creates the namespace if it doesn't exist.
+func (c *Client) EnsureNamespace(ctx context.Context) error {
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: c.namespace},
+	}
+	_, err := c.cs.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
 }
