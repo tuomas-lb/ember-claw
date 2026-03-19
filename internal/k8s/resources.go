@@ -304,7 +304,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
+										Path: "/health",
 										Port: intstr.FromInt32(8080),
 									},
 								},
@@ -314,7 +314,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/healthz",
+										Path: "/ready",
 										Port: intstr.FromInt32(8080),
 									},
 								},
