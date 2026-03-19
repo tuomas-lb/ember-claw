@@ -24,7 +24,12 @@ your API key — if the key is invalid, you'll get an authentication error.
 
 Supported providers: openai, gemini, anthropic, groq, deepseek, openrouter`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			models, err := providers.ListModels(cmd.Context(), provider, apiKey)
+			resolvedKey, err := resolveAPIKey(apiKey, provider)
+			if err != nil {
+				return err
+			}
+
+			models, err := providers.ListModels(cmd.Context(), provider, resolvedKey)
 			if err != nil {
 				return fmt.Errorf("list models: %w", err)
 			}
@@ -52,10 +57,9 @@ Supported providers: openai, gemini, anthropic, groq, deepseek, openrouter`,
 	}
 
 	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (openai, gemini, anthropic, groq, deepseek, openrouter)")
-	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key for the provider")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key (or set <PROVIDER>_API_KEY env var)")
 
 	_ = cmd.MarkFlagRequired("provider")
-	_ = cmd.MarkFlagRequired("api-key")
 
 	return cmd
 }

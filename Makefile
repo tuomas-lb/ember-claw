@@ -95,7 +95,11 @@ deploy-picoclaw: build-eclaw ## Deploy PicoClaw instance via interactive wizard 
 	PROVIDER=$${PROVIDER:-}; \
 	if [ -z "$$PROVIDER" ]; then read -p "AI provider (anthropic/openai/gemini/copilot): " PROVIDER; fi; \
 	API_KEY=$${API_KEY:-}; \
-	if [ -z "$$API_KEY" ]; then read -s -p "API key: " API_KEY; echo; fi; \
+	if [ -z "$$API_KEY" ]; then \
+		ENV_KEY=$$(echo $$PROVIDER | tr '[:lower:]' '[:upper:]')_API_KEY; \
+		API_KEY=$$(printenv $$ENV_KEY 2>/dev/null || true); \
+	fi; \
+	if [ -z "$$API_KEY" ]; then read -s -p "API key (or set $${ENV_KEY:-<PROVIDER>_API_KEY} in .env): " API_KEY; echo; fi; \
 	MODEL=$${MODEL:-}; \
 	if [ -z "$$MODEL" ]; then read -p "Model name: " MODEL; fi; \
 	CPU_REQ=$${CPU_REQ:-100m}; \
@@ -114,9 +118,11 @@ deploy-picoclaw: build-eclaw ## Deploy PicoClaw instance via interactive wizard 
 	if [ -n "$$IMAGE" ]; then IMAGE_FLAG="--image $$IMAGE"; fi; \
 	KUBECONFIG_FLAG=""; \
 	if [ -n "$(KUBECONFIG_PATH)" ]; then KUBECONFIG_FLAG="--kubeconfig $(KUBECONFIG_PATH)"; fi; \
+	API_KEY_FLAG=""; \
+	if [ -n "$$API_KEY" ]; then API_KEY_FLAG="--api-key $$API_KEY"; fi; \
 	./bin/eclaw deploy $$NAME \
 		--provider $$PROVIDER \
-		--api-key $$API_KEY \
+		$$API_KEY_FLAG \
 		--model $$MODEL \
 		--cpu-request $$CPU_REQ \
 		--cpu-limit $$CPU_LIM \

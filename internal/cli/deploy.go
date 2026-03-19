@@ -40,6 +40,12 @@ func newDeployCommand() *cobra.Command {
 				return fmt.Errorf("invalid instance name %q: must match ^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$", name)
 			}
 
+			resolvedKey, err := resolveAPIKey(apiKey, provider)
+			if err != nil {
+				return err
+			}
+			apiKey = resolvedKey
+
 			opts := k8s.DeployOptions{
 				Name:          name,
 				Provider:      provider,
@@ -65,7 +71,7 @@ func newDeployCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (e.g. anthropic, openai)")
-	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key for the AI provider")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key (or set <PROVIDER>_API_KEY env var, e.g. OPENAI_API_KEY)")
 	cmd.Flags().StringVar(&model, "model", "", "Model identifier (e.g. claude-opus-4-5)")
 	cmd.Flags().StringVar(&image, "image", "reg.r.lastbot.com/ember-claw-sidecar:latest", "Container image for the sidecar")
 	cmd.Flags().StringVar(&cpuRequest, "cpu-request", "100m", "CPU request for the instance pod")
@@ -77,7 +83,6 @@ func newDeployCommand() *cobra.Command {
 	cmd.Flags().StringToStringVar(&customEnv, "env", nil, "Additional environment variables (key=value pairs, can be repeated)")
 
 	_ = cmd.MarkFlagRequired("provider")
-	_ = cmd.MarkFlagRequired("api-key")
 	_ = cmd.MarkFlagRequired("model")
 
 	return cmd
