@@ -39,6 +39,9 @@ type DeployOptions struct {
 	StorageSize   string            // PVC size (default: "1Gi")
 	StorageClass  string            // Optional storage class name
 	CustomEnv     map[string]string // Additional env vars
+	LinearAPIKey  string            // Linear API key (optional)
+	LinearTeamID  string            // Linear team UUID (optional)
+	SlackBotToken string            // Slack bot token (optional)
 }
 
 // picoClawConfig is the subset of PicoClaw's config.json we generate for deployment.
@@ -158,15 +161,27 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 		return fmt.Errorf("marshal picoclaw config: %w", err)
 	}
 
+	secretData := map[string]string{
+		"config.json": string(configJSON),
+	}
+	// Add optional integration credentials as env vars (picked up by sidecar container).
+	if opts.LinearAPIKey != "" {
+		secretData["LINEAR_API_KEY"] = opts.LinearAPIKey
+	}
+	if opts.LinearTeamID != "" {
+		secretData["LINEAR_TEAM_ID"] = opts.LinearTeamID
+	}
+	if opts.SlackBotToken != "" {
+		secretData["SLACK_BOT_TOKEN"] = opts.SlackBotToken
+	}
+
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configSecretName,
 			Namespace: c.namespace,
 			Labels:    instanceLabels,
 		},
-		StringData: map[string]string{
-			"config.json": string(configJSON),
-		},
+		StringData: secretData,
 	}
 	if _, err := c.cs.CoreV1().Secrets(c.namespace).Create(ctx, secret, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
 		if _, err := c.cs.CoreV1().Secrets(c.namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
@@ -271,6 +286,13 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 								{Name: "http", ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
 							},
 							EnvFrom: []corev1.EnvFromSource{
+								{
+									SecretRef: &corev1.SecretEnvSource{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: configSecretName,
+										},
+									},
+								},
 								{
 									ConfigMapRef: &corev1.ConfigMapEnvSource{
 										LocalObjectReference: corev1.LocalObjectReference{

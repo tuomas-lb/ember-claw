@@ -32,6 +32,8 @@ import (
 
 	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
 	"github.com/tuomas-lb/ember-claw/internal/server"
+	lineartools "github.com/tuomas-lb/ember-claw/internal/tools/linear"
+	slacktools "github.com/tuomas-lb/ember-claw/internal/tools/slack"
 )
 
 func main() {
@@ -60,6 +62,9 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// --- Register ember-claw tools (conditionally, based on env vars) ---
+	registerTools(agentLoop)
 
 	// MUST start this goroutine (Pitfall 3: background tasks require Run)
 	go agentLoop.Run(ctx)
@@ -112,6 +117,27 @@ func main() {
 	grpcSrv.GracefulStop()
 	agentLoop.Stop()
 	log.Info().Msg("shutdown complete")
+}
+
+// registerTools registers ember-claw tools (Linear, Slack) to the agent loop.
+// Tools are only registered when their respective env vars are set.
+func registerTools(agentLoop *agent.AgentLoop) {
+	if apiKey := os.Getenv("LINEAR_API_KEY"); apiKey != "" {
+		teamID := os.Getenv("LINEAR_TEAM_ID")
+		client := lineartools.NewClient(apiKey)
+		agentLoop.RegisterTool(lineartools.NewCreateIssueTool(client, teamID))
+		agentLoop.RegisterTool(lineartools.NewSearchIssuesTool(client, teamID))
+		agentLoop.RegisterTool(lineartools.NewGetIssueTool(client))
+		agentLoop.RegisterTool(lineartools.NewUpdateIssueTool(client, teamID))
+		log.Info().Str("teamID", teamID).Msg("linear tools registered")
+	}
+
+	if botToken := os.Getenv("SLACK_BOT_TOKEN"); botToken != "" {
+		client := slacktools.NewClient(botToken)
+		agentLoop.RegisterTool(slacktools.NewSendMessageTool(client))
+		agentLoop.RegisterTool(slacktools.NewListChannelsTool(client))
+		log.Info().Msg("slack tools registered")
+	}
 }
 
 // getConfigPath resolves the PicoClaw config file path using the standard

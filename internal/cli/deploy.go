@@ -35,6 +35,9 @@ func newDeployCommand() *cobra.Command {
 		storageSize   string
 		storageClass  string
 		customEnv     map[string]string
+		linearAPIKey  string
+		linearTeamID  string
+		slackBotToken string
 	)
 
 	cmd := &cobra.Command{
@@ -79,6 +82,9 @@ func newDeployCommand() *cobra.Command {
 				StorageSize:   storageSize,
 				StorageClass:  storageClass,
 				CustomEnv:     customEnv,
+				LinearAPIKey:  envDefault(linearAPIKey, "LINEAR_API_KEY"),
+				LinearTeamID:  envDefault(linearTeamID, "LINEAR_TEAM_ID"),
+				SlackBotToken: envDefault(slackBotToken, "SLACK_BOT_TOKEN"),
 			}
 
 			if err := k8sClient.DeployInstance(context.Background(), opts); err != nil {
@@ -101,6 +107,11 @@ func newDeployCommand() *cobra.Command {
 	cmd.Flags().StringVar(&storageSize, "storage-size", "1Gi", "PVC storage size")
 	cmd.Flags().StringVar(&storageClass, "storage-class", "", "Storage class for the PVC (uses cluster default if empty)")
 	cmd.Flags().StringToStringVar(&customEnv, "env", nil, "Additional environment variables (key=value pairs, can be repeated)")
+
+	// Integration tool flags (optional — also read from env vars)
+	cmd.Flags().StringVar(&linearAPIKey, "linear-api-key", "", "Linear API key (or LINEAR_API_KEY env)")
+	cmd.Flags().StringVar(&linearTeamID, "linear-team-id", "", "Linear team UUID (or LINEAR_TEAM_ID env)")
+	cmd.Flags().StringVar(&slackBotToken, "slack-bot-token", "", "Slack bot token (or SLACK_BOT_TOKEN env)")
 
 	return cmd
 }
