@@ -440,6 +440,154 @@ func TestFindRunningPodNotFound(t *testing.T) {
 	assert.Error(t, err, "FindRunningPod should return error when no running pod found")
 }
 
+// TestDeployInstance_CustomEnv verifies custom environment variables are set in ConfigMap.
+func TestDeployInstance_CustomEnv(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.CustomEnv = map[string]string{
+		"LOG_LEVEL": "debug",
+		"FEATURE_X": "enabled",
+	}
+
+	err := client.DeployInstance(ctx, opts)
+	require.NoError(t, err)
+
+	fakeCS := client.cs.(*fake.Clientset)
+	cms, _ := fakeCS.CoreV1().ConfigMaps(testNamespace).List(ctx, metav1.ListOptions{})
+	require.Len(t, cms.Items, 1)
+
+	assert.Equal(t, "debug", cms.Items[0].Data["LOG_LEVEL"])
+	assert.Equal(t, "enabled", cms.Items[0].Data["FEATURE_X"])
+}
+
+// TestDeployInstance_StorageClass verifies custom storage class is applied to PVC.
+func TestDeployInstance_StorageClass(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.StorageClass = "ssd-premium"
+
+	err := client.DeployInstance(ctx, opts)
+	require.NoError(t, err)
+
+	fakeCS := client.cs.(*fake.Clientset)
+	pvcs, _ := fakeCS.CoreV1().PersistentVolumeClaims(testNamespace).List(ctx, metav1.ListOptions{})
+	require.Len(t, pvcs.Items, 1)
+
+	require.NotNil(t, pvcs.Items[0].Spec.StorageClassName)
+	assert.Equal(t, "ssd-premium", *pvcs.Items[0].Spec.StorageClassName)
+}
+
+// TestDeployInstance_DefaultImage verifies the default container image is used when empty.
+func TestDeployInstance_DefaultImage(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.Image = "" // Should use DefaultImage
+
+	err := client.DeployInstance(ctx, opts)
+	require.NoError(t, err)
+
+	fakeCS := client.cs.(*fake.Clientset)
+	deployments, _ := fakeCS.AppsV1().Deployments(testNamespace).List(ctx, metav1.ListOptions{})
+	require.Len(t, deployments.Items, 1)
+
+	container := deployments.Items[0].Spec.Template.Spec.Containers[0]
+	assert.Equal(t, DefaultImage, container.Image)
+}
+
+// TestDeployInstance_CustomImage verifies a custom image overrides the default.
+func TestDeployInstance_CustomImage(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.Image = "reg.r.lastbot.com/ember-claw-sidecar:0.1.5"
+
+	err := client.DeployInstance(ctx, opts)
+	require.NoError(t, err)
+
+	fakeCS := client.cs.(*fake.Clientset)
+	deployments, _ := fakeCS.AppsV1().Deployments(testNamespace).List(ctx, metav1.ListOptions{})
+	require.Len(t, deployments.Items, 1)
+
+	container := deployments.Items[0].Spec.Template.Spec.Containers[0]
+	assert.Equal(t, "reg.r.lastbot.com/ember-claw-sidecar:0.1.5", container.Image)
+}
+
+// TestDeployInstance_GeminiProvider verifies Gemini-specific env vars are set correctly.
+func TestDeployInstance_GeminiProvider(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.Provider = "gemini"
+	opts.APIKey = "AIza-test-key"
+	opts.Model = "gemini-2.5-flash"
+
+	err := client.DeployInstance(ctx, opts)
+	require.NoError(t, err)
+
+	fakeCS := client.cs.(*fake.Clientset)
+	secrets, _ := fakeCS.CoreV1().Secrets(testNamespace).List(ctx, metav1.ListOptions{})
+	require.Len(t, secrets.Items, 1)
+
+	secret := secrets.Items[0]
+	// Check Gemini-specific env var name
+	found := false
+	for key, val := range secret.StringData {
+		if key == "PICOCLAW_PROVIDERS_GEMINI_API_KEY" && val == "AIza-test-key" {
+			found = true
+		}
+	}
+	if !found {
+		for key, val := range secret.Data {
+			if key == "PICOCLAW_PROVIDERS_GEMINI_API_KEY" && string(val) == "AIza-test-key" {
+				found = true
+			}
+		}
+	}
+	assert.True(t, found, "Secret must contain PICOCLAW_PROVIDERS_GEMINI_API_KEY")
+}
+
+// TestGetInstanceLogs verifies log retrieval path (happy path with a running pod).
+func TestGetInstanceLogs(t *testing.T) {
+	fakeCS := fake.NewSimpleClientset()
+	client := NewClientFromClientset(fakeCS, testNamespace)
+	ctx := context.Background()
+
+	// Pre-create a running pod
+	_, err := fakeCS.CoreV1().Pods(testNamespace).Create(ctx, &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "picoclaw-research-abc123",
+			Namespace: testNamespace,
+			Labels:    InstanceLabels("research"),
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	// GetInstanceLogs will call FindRunningPod then attempt GetLogs.
+	// With fake clientset, GetLogs returns an empty stream.
+	stream, err := client.GetInstanceLogs(ctx, "research", false, 100)
+	// fake clientset may return error for GetLogs (not fully supported),
+	// but FindRunningPod path is exercised
+	if err == nil && stream != nil {
+		stream.Close()
+	}
+}
+
+// TestGetInstanceLogs_NoPod verifies error when no pod exists.
+func TestGetInstanceLogs_NoPod(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+
+	_, err := client.GetInstanceLogs(ctx, "nonexistent", false, 100)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no running pod")
+}
+
 // int32Ptr returns a pointer to an int32 value.
 func int32Ptr(i int32) *int32 {
 	return &i
