@@ -1,6 +1,9 @@
 package k8s
 
 import (
+	"encoding/base64"
+	"os"
+
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -15,9 +18,31 @@ type Client struct {
 }
 
 // NewClient builds a Client from a kubeconfig path and namespace.
-// If kubeconfigPath is empty, it falls back to the KUBECONFIG environment
-// variable, then to ~/.kube/config.
+// Resolution order:
+//  1. Explicit kubeconfigPath argument
+//  2. KUBECONFIG_BASE64 env var (base64-encoded kubeconfig, for CI/automation)
+//  3. KUBECONFIG env var (standard kubectl behavior)
+//  4. ~/.kube/config
 func NewClient(kubeconfigPath, namespace string) (*Client, error) {
+	if kubeconfigPath == "" {
+		if b64 := os.Getenv("KUBECONFIG_BASE64"); b64 != "" {
+			decoded, err := base64.StdEncoding.DecodeString(b64)
+			if err != nil {
+				return nil, err
+			}
+			f, err := os.CreateTemp("", "eclaw-kubeconfig-*.yaml")
+			if err != nil {
+				return nil, err
+			}
+			if _, err := f.Write(decoded); err != nil {
+				f.Close()
+				return nil, err
+			}
+			f.Close()
+			kubeconfigPath = f.Name()
+		}
+	}
+
 	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	if err != nil {
 		return nil, err

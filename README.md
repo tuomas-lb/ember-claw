@@ -121,6 +121,13 @@ eclaw chat research -m "What is the capital of France?"
 | `--kubeconfig` | `$KUBECONFIG` or `~/.kube/config` | Path to kubeconfig |
 | `--namespace` | `picoclaw` | Kubernetes namespace |
 
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `KUBECONFIG` | Standard kubeconfig path (used when `--kubeconfig` not set) |
+| `KUBECONFIG_BASE64` | Base64-encoded kubeconfig content (for CI/automation) |
+
 ### Commands
 
 #### `eclaw deploy <name>`
@@ -129,7 +136,7 @@ Create a named PicoClaw instance on the cluster.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--provider` | *required* | AI provider (`anthropic`, `openai`, etc.) |
+| `--provider` | *required* | AI provider (`anthropic`, `openai`, `gemini`, etc.) |
 | `--api-key` | *required* | API key for the provider |
 | `--model` | *required* | Model identifier |
 | `--image` | `reg.r.lastbot.com/ember-claw-sidecar:latest` | Container image |
@@ -159,6 +166,19 @@ Delete an instance. Removes Deployment, Service, Secret, ConfigMap, and PVC. Pro
 
 Stream pod logs. Supports `--lines N` (default 100) and `--follow`.
 
+#### `eclaw models`
+
+List available models from a provider and validate your API key.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--provider` | *required* | AI provider (`openai`, `gemini`, `anthropic`, `groq`, `deepseek`, `openrouter`) |
+| `--api-key` | *required* | API key to validate and list models for |
+
+```bash
+eclaw models --provider gemini --api-key AIza...
+```
+
 #### `eclaw chat <name>`
 
 Chat with a running instance via gRPC. Without `-m`, opens an interactive readline session. With `-m "message"`, sends a single query and exits.
@@ -184,9 +204,10 @@ ember-claw/
 │   ├── eclaw/              # CLI entry point
 │   └── sidecar/            # gRPC sidecar entry point
 ├── internal/
-│   ├── cli/                # Cobra subcommands (deploy, list, delete, status, logs, chat)
+│   ├── cli/                # Cobra subcommands (deploy, list, delete, status, logs, chat, models)
 │   ├── grpcclient/         # gRPC client for CLI → sidecar communication
 │   ├── k8s/                # Kubernetes client, resource creation, port-forwarding
+│   ├── providers/          # Provider model listing (OpenAI, Gemini, Anthropic, etc.)
 │   └── server/             # gRPC service implementation, session management
 ├── proto/emberclaw/v1/     # Protobuf service definition
 ├── gen/emberclaw/v1/       # Generated gRPC code

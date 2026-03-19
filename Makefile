@@ -8,7 +8,7 @@ IMAGE_REGISTRY    := reg.r.lastbot.com
 EMBER_VERSION     ?=
 BUILD_NUMBER_FILE := .ember-build-numbers
 K8S_NAMESPACE     := picoclaw
-KUBECONFIG_PATH   ?= /Users/tuomas/Projects/ember.kubeconfig.yaml
+KUBECONFIG_PATH   ?=
 
 .PHONY: help build-eclaw build-picoclaw push-picoclaw build-push-picoclaw deploy-picoclaw
 .DEFAULT_GOAL := help
@@ -93,7 +93,7 @@ deploy-picoclaw: build-eclaw ## Deploy PicoClaw instance via interactive wizard 
 	@NAME=$${NAME:-}; \
 	if [ -z "$$NAME" ]; then read -p "Instance name: " NAME; fi; \
 	PROVIDER=$${PROVIDER:-}; \
-	if [ -z "$$PROVIDER" ]; then read -p "AI provider (anthropic/openai/copilot): " PROVIDER; fi; \
+	if [ -z "$$PROVIDER" ]; then read -p "AI provider (anthropic/openai/gemini/copilot): " PROVIDER; fi; \
 	API_KEY=$${API_KEY:-}; \
 	if [ -z "$$API_KEY" ]; then read -s -p "API key: " API_KEY; echo; fi; \
 	MODEL=$${MODEL:-}; \
@@ -112,6 +112,8 @@ deploy-picoclaw: build-eclaw ## Deploy PicoClaw instance via interactive wizard 
 	fi; \
 	IMAGE_FLAG=""; \
 	if [ -n "$$IMAGE" ]; then IMAGE_FLAG="--image $$IMAGE"; fi; \
+	KUBECONFIG_FLAG=""; \
+	if [ -n "$(KUBECONFIG_PATH)" ]; then KUBECONFIG_FLAG="--kubeconfig $(KUBECONFIG_PATH)"; fi; \
 	./bin/eclaw deploy $$NAME \
 		--provider $$PROVIDER \
 		--api-key $$API_KEY \
@@ -120,6 +122,6 @@ deploy-picoclaw: build-eclaw ## Deploy PicoClaw instance via interactive wizard 
 		--cpu-limit $$CPU_LIM \
 		--memory-request $$MEM_REQ \
 		--memory-limit $$MEM_LIM \
-		--kubeconfig $(KUBECONFIG_PATH) \
 		--namespace $(K8S_NAMESPACE) \
+		$$KUBECONFIG_FLAG \
 		$$IMAGE_FLAG

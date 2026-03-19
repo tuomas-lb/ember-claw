@@ -22,7 +22,7 @@ func NewRootCommand() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Skip client creation for commands that don't need cluster access.
 			switch cmd.Name() {
-			case "help", "completion":
+			case "help", "completion", "models":
 				return nil
 			}
 			var err error
@@ -41,6 +41,7 @@ func NewRootCommand() *cobra.Command {
 		newStatusCommand(),
 		newLogsCommand(),
 		newChatCommand(),
+		newModelsCommand(),
 	)
 
 	return root
