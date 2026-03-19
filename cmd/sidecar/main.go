@@ -30,8 +30,8 @@ import (
 	grpchealth "google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
-	emberclaw "github.com/LastBotInc/ember-claw/gen/emberclaw/v1"
-	"github.com/LastBotInc/ember-claw/internal/server"
+	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
+	"github.com/tuomas-lb/ember-claw/internal/server"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	emberclaw "github.com/LastBotInc/ember-claw/gen/emberclaw/v1"
+	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
 )
 
 // DialSidecar dials the eclaw sidecar gRPC server at localhost:{localPort} using

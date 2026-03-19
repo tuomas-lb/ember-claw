@@ -12,9 +12,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	emberclaw "github.com/LastBotInc/ember-claw/gen/emberclaw/v1"
-	"github.com/LastBotInc/ember-claw/internal/grpcclient"
-	"github.com/LastBotInc/ember-claw/internal/server"
+	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
+	"github.com/tuomas-lb/ember-claw/internal/grpcclient"
+	"github.com/tuomas-lb/ember-claw/internal/server"
 )
 
 const bufSize = 1024 * 1024

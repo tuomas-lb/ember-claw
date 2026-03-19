@@ -8,9 +8,9 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/spf13/cobra"
 
-	emberclaw "github.com/LastBotInc/ember-claw/gen/emberclaw/v1"
-	"github.com/LastBotInc/ember-claw/internal/grpcclient"
-	"github.com/LastBotInc/ember-claw/internal/k8s"
+	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
+	"github.com/tuomas-lb/ember-claw/internal/grpcclient"
+	"github.com/tuomas-lb/ember-claw/internal/k8s"
 )
 
 func newChatCommand() *cobra.Command {

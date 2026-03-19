@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/LastBotInc/ember-claw/internal/providers"
+	"github.com/tuomas-lb/ember-claw/internal/providers"
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"

@@ -1,4 +1,4 @@
-module github.com/LastBotInc/ember-claw
+module github.com/tuomas-lb/ember-claw
 
 go 1.25.7
 

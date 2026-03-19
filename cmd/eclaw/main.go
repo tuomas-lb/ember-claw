@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/LastBotInc/ember-claw/internal/cli"
+	"github.com/tuomas-lb/ember-claw/internal/cli"
 )
 
 func main() {

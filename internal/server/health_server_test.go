@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/LastBotInc/ember-claw/internal/server"
+	"github.com/tuomas-lb/ember-claw/internal/server"
 )
 
 func TestStartHealthServer(t *testing.T) {

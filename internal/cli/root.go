@@ -3,8 +3,8 @@ package cli
 import (
 	"os"
 
-	"github.com/LastBotInc/ember-claw/internal/envfile"
-	"github.com/LastBotInc/ember-claw/internal/k8s"
+	"github.com/tuomas-lb/ember-claw/internal/envfile"
+	"github.com/tuomas-lb/ember-claw/internal/k8s"
 	"github.com/spf13/cobra"
 )
 

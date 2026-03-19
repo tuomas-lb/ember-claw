@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	emberclaw "github.com/LastBotInc/ember-claw/gen/emberclaw/v1"
-	"github.com/LastBotInc/ember-claw/internal/server"
+	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
+	"github.com/tuomas-lb/ember-claw/internal/server"
 )
 
 // TestStatusRPC verifies the Status RPC returns model, provider, ready, and uptime.

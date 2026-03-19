@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	emberclaw "github.com/LastBotInc/ember-claw/gen/emberclaw/v1"
+	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
 )
 
 // Server implements the PicoClawServiceServer gRPC interface.

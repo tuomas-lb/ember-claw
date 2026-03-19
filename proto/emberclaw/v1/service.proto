@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package emberclaw.v1;
 
-option go_package = "github.com/LastBotInc/ember-claw/gen/emberclaw/v1;emberclaw";
+option go_package = "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1;emberclaw";
 
 service PicoClawService {
   // Bidirectional streaming for interactive chat sessions (GRPC-02)

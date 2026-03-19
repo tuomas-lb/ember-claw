@@ -6,7 +6,7 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/LastBotInc/ember-claw/internal/k8s"
+	"github.com/tuomas-lb/ember-claw/internal/k8s"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
