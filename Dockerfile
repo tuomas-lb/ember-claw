@@ -14,10 +14,10 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-w -s" -o /sidecar ./cmd/sidecar
 
-# Stage 2: Runtime with development tools
-FROM alpine:3.23
+# Stage 2: Runtime with development tools (Debian for glibc compatibility with bun/backlog.md)
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
     # Core utilities
@@ -27,22 +27,31 @@ RUN apk add --no-cache \
     bash \
     git \
     openssh-client \
+    unzip \
     # Build tools
     make \
     gcc \
-    musl-dev \
+    libc6-dev \
     # Python
     python3 \
-    py3-pip \
-    # Node.js
+    python3-pip \
+    python3-venv \
+    # Node.js (via nodesource for recent version)
     nodejs \
     npm \
-    # Go (latest stable from Alpine packages)
-    go
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go
+RUN curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz | tar -C /usr/local -xz
+
+# Install Bun
+RUN curl -fsSL https://bun.sh/install | bash && \
+    mv /root/.bun/bin/bun /usr/local/bin/bun && \
+    ln -s /usr/local/bin/bun /usr/local/bin/bunx
 
 # Create non-root user matching PVC ownership expectations
-RUN addgroup -g 1000 picoclaw && \
-    adduser -D -u 1000 -G picoclaw -h /home/picoclaw -s /bin/bash picoclaw
+RUN groupadd -g 1000 picoclaw && \
+    useradd -u 1000 -g picoclaw -m -d /home/picoclaw -s /bin/bash picoclaw
 
 COPY --from=builder /sidecar /usr/local/bin/sidecar
 
@@ -50,7 +59,7 @@ COPY --from=builder /sidecar /usr/local/bin/sidecar
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Pre-install commonly needed Python packages
-RUN pip install --no-cache-dir requests beautifulsoup4 pyyaml
+RUN pip install --no-cache-dir --break-system-packages requests beautifulsoup4 pyyaml
 
 # Install Backlog.md task manager and CalDAV MCP server (used by PicoClaw as MCP tools)
 RUN npm install -g backlog.md caldav-mcp
