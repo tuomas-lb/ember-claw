@@ -97,8 +97,10 @@ push-picoclaw: ## Push Docker image to registry (run build-picoclaw first)
 	fi; \
 	echo "Pushing $(IMAGE_REGISTRY)/$(SERVICE_NAME):$$IMAGE_TAG"; \
 	docker push $(IMAGE_REGISTRY)/$(SERVICE_NAME):$$IMAGE_TAG; \
-	echo "Pushing $(IMAGE_REGISTRY)/$(SERVICE_NAME):latest"; \
-	docker push $(IMAGE_REGISTRY)/$(SERVICE_NAME):latest
+	if [ "$$IMAGE_TAG" != "latest" ]; then \
+		echo "Pushing $(IMAGE_REGISTRY)/$(SERVICE_NAME):latest"; \
+		docker push $(IMAGE_REGISTRY)/$(SERVICE_NAME):latest; \
+	fi
 
 build-push-picoclaw: build-picoclaw push-picoclaw ## Build and push Docker image in one step
 
