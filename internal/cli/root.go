@@ -59,6 +59,7 @@ func NewRootCommand() *cobra.Command {
 		newUnexposeCommand(),
 		newConfigCommand(),
 		newSetTelegramCommand(),
+		newSetCalDAVCommand(),
 	)
 
 	return root
