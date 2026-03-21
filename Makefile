@@ -4,7 +4,7 @@ GO    ?= $(shell which go 2>/dev/null || echo /usr/local/go/bin/go)
 
 SERVICE_NAME      := ember-claw-sidecar
 DOCKERFILE        := Dockerfile
-IMAGE_REGISTRY    := reg.r.lastbot.com
+IMAGE_REGISTRY    ?= $(shell cat .env 2>/dev/null | grep -m1 '^IMAGE_REGISTRY=' | cut -d= -f2- | tr -d '"'"'"'  || echo "")
 EMBER_VERSION     ?=
 BUILD_NUMBER_FILE := .ember-build-numbers
 K8S_NAMESPACE     := picoclaw
@@ -33,7 +33,8 @@ help: ## Show this help menu
 	@echo ''
 	@echo 'Notes:'
 	@echo '  - Set EMBER_VERSION for versioned builds (e.g. 0.1). Omit for "production" tag.'
-	@echo '  - Authenticate to $(IMAGE_REGISTRY) with "docker login $(IMAGE_REGISTRY)" before push.'
+	@echo '  - Set IMAGE_REGISTRY in .env or environment (e.g. IMAGE_REGISTRY=your.registry.com)'
+	@echo '  - Authenticate with "docker login <registry>" before push.'
 
 build-eclaw: ## Build eclaw CLI binary to ./bin/eclaw
 	@mkdir -p bin
@@ -41,6 +42,11 @@ build-eclaw: ## Build eclaw CLI binary to ./bin/eclaw
 	@echo "Built bin/eclaw"
 
 build-picoclaw: ## Build Docker image for ember-claw-sidecar (use EMBER_VERSION=x.y for versioned tag)
+	@if [ -z "$(IMAGE_REGISTRY)" ]; then \
+		echo "Error: IMAGE_REGISTRY is not set."; \
+		echo "Set it in .env (IMAGE_REGISTRY=your.registry.com) or export IMAGE_REGISTRY=..."; \
+		exit 1; \
+	fi
 	@if [ -n "$(EMBER_VERSION)" ]; then \
 		SERVICE_NAME="$(SERVICE_NAME)"; \
 		if [ -f $(BUILD_NUMBER_FILE) ]; then \
@@ -70,7 +76,12 @@ build-picoclaw: ## Build Docker image for ember-claw-sidecar (use EMBER_VERSION=
 		-t $(IMAGE_REGISTRY)/$(SERVICE_NAME):latest \
 		.
 
-push-picoclaw: ## Push Docker image to reg.r.lastbot.com (run build-picoclaw first)
+push-picoclaw: ## Push Docker image to registry (run build-picoclaw first)
+	@if [ -z "$(IMAGE_REGISTRY)" ]; then \
+		echo "Error: IMAGE_REGISTRY is not set."; \
+		echo "Set it in .env (IMAGE_REGISTRY=your.registry.com) or export IMAGE_REGISTRY=..."; \
+		exit 1; \
+	fi
 	@if [ -n "$(EMBER_VERSION)" ]; then \
 		if [ ! -f $(BUILD_NUMBER_FILE) ]; then \
 			echo "Error: run make build-picoclaw EMBER_VERSION=$(EMBER_VERSION) first"; exit 1; \

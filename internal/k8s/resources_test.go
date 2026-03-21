@@ -26,6 +26,7 @@ func defaultDeployOptions() DeployOptions {
 		Provider:      "anthropic",
 		APIKey:        "sk-ant-test123",
 		Model:         "claude-3-5-sonnet-20241022",
+		Image:         "test.registry.com/ember-claw-sidecar:latest",
 		CPURequest:    "100m",
 		CPULimit:      "500m",
 		MemoryRequest: "128Mi",
@@ -474,22 +475,16 @@ func TestDeployInstance_StorageClass(t *testing.T) {
 	assert.Equal(t, "ssd-premium", *pvcs.Items[0].Spec.StorageClassName)
 }
 
-// TestDeployInstance_DefaultImage verifies the default container image is used when empty.
-func TestDeployInstance_DefaultImage(t *testing.T) {
+// TestDeployInstance_EmptyImage verifies that empty image returns an error.
+func TestDeployInstance_EmptyImage(t *testing.T) {
 	client := newTestClient()
 	ctx := context.Background()
 	opts := defaultDeployOptions()
-	opts.Image = "" // Should use DefaultImage
+	opts.Image = ""
 
 	err := client.DeployInstance(ctx, opts)
-	require.NoError(t, err)
-
-	fakeCS := client.cs.(*fake.Clientset)
-	deployments, _ := fakeCS.AppsV1().Deployments(testNamespace).List(ctx, metav1.ListOptions{})
-	require.Len(t, deployments.Items, 1)
-
-	container := deployments.Items[0].Spec.Template.Spec.Containers[0]
-	assert.Equal(t, DefaultImage, container.Image)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "image is required")
 }
 
 // TestDeployInstance_CustomImage verifies a custom image overrides the default.

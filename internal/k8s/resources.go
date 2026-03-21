@@ -17,12 +17,14 @@ import (
 )
 
 const (
-	// DefaultImage is the default sidecar container image.
-	DefaultImage = "reg.r.lastbot.com/ember-claw-sidecar:latest"
 	// DefaultStorageSize is the default PVC size.
 	DefaultStorageSize = "1Gi"
 	// MountPath is the path where the PVC is mounted in the container.
 	MountPath = "/home/picoclaw/.picoclaw"
+	// DefaultServiceName is the sidecar image name (without registry prefix).
+	DefaultServiceName = "ember-claw-sidecar"
+	// DefaultImageTag is the default image tag.
+	DefaultImageTag = "latest"
 )
 
 // DeployOptions contains all configuration for deploying a PicoClaw instance.
@@ -31,7 +33,7 @@ type DeployOptions struct {
 	Provider      string            // AI provider (anthropic, openai, etc.)
 	APIKey        string            // Provider API key
 	Model         string            // Model name
-	Image         string            // Container image (default: DefaultImage)
+	Image         string            // Container image (resolved from IMAGE_REGISTRY or ECLAW_IMAGE)
 	CPURequest    string            // e.g., "100m"
 	CPULimit      string            // e.g., "500m"
 	MemoryRequest string            // e.g., "128Mi"
@@ -154,7 +156,7 @@ func resourceName(name string) string {
 // It is NOT placed directly in Deployment env vars (K8S-03).
 func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 	if opts.Image == "" {
-		opts.Image = DefaultImage
+		return fmt.Errorf("image is required: set ECLAW_IMAGE or IMAGE_REGISTRY in .env, or use --image flag")
 	}
 	if opts.StorageSize == "" {
 		opts.StorageSize = DefaultStorageSize

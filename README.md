@@ -41,6 +41,18 @@ Each instance runs as a single-container pod. The sidecar binary embeds PicoClaw
 - Docker with buildx
 - `kubectl` with access to target cluster
 - Kubeconfig for the target cluster
+- A Docker registry — configure `IMAGE_REGISTRY` in `.env` or log in with `docker login`
+
+### Registry Setup
+
+The container registry is **not hardcoded** — you must configure it before building/pushing images.
+
+Add to your `.env` file:
+```bash
+IMAGE_REGISTRY=your.registry.com
+```
+
+If `IMAGE_REGISTRY` is not set, eclaw will attempt to auto-detect a registry from your `~/.docker/config.json` (the first non-Docker Hub host you're logged into). For the Makefile targets (`build-picoclaw`, `push-picoclaw`), `IMAGE_REGISTRY` must be set explicitly.
 
 ### Build
 
@@ -122,7 +134,10 @@ eclaw chat research -m "What is the capital of France?"
 The `eclaw` CLI auto-loads a `.env` file from the current directory. This is the recommended way to configure API keys and kubeconfig for local development. Existing environment variables are **not** overridden.
 
 ```bash
-# .env - API keys per provider
+# .env - Container registry (required for build/push/deploy)
+IMAGE_REGISTRY=your.registry.com
+
+# API keys per provider
 ANTHROPIC_API_KEY=sk-ant-api03-...
 OPENAI_API_KEY=sk-...
 GEMINI_API_KEY=AIza...
@@ -220,7 +235,7 @@ Create a named PicoClaw instance on the cluster. Creates the namespace automatic
 | `--provider` | *required* | AI provider (`anthropic`, `openai`, `gemini`, `groq`, `deepseek`, `openrouter`, `copilot`) |
 | `--api-key` | from env | API key (auto-resolved from `<PROVIDER>_API_KEY` env var if not set) |
 | `--model` | *required* | Model identifier |
-| `--image` | `reg.r.lastbot.com/ember-claw-sidecar:latest` | Container image |
+| `--image` | from `ECLAW_IMAGE` or `IMAGE_REGISTRY` env | Container image |
 | `--cpu-request` | `100m` | CPU request |
 | `--cpu-limit` | `500m` | CPU limit |
 | `--memory-request` | `128Mi` | Memory request |
@@ -315,7 +330,7 @@ See [docs/tool-development.md](docs/tool-development.md) for how to add new tool
 | `make help` | Show all targets with usage |
 | `make build-eclaw` | Build CLI to `./bin/eclaw` |
 | `make build-picoclaw` | Build sidecar Docker image |
-| `make push-picoclaw` | Push image to `reg.r.lastbot.com` |
+| `make push-picoclaw` | Push image to `IMAGE_REGISTRY` |
 | `make build-push-picoclaw` | Build and push in one step |
 | `make deploy-picoclaw` | Interactive deployment wizard |
 

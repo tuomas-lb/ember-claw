@@ -7,7 +7,7 @@ Step-by-step guide for deploying PicoClaw instances on the emberchat Kubernetes 
 1. **Go 1.25+** installed
 2. **Docker** with buildx plugin
 3. **kubectl** configured
-4. **Registry access** — `docker login reg.r.lastbot.com`
+4. **Registry access** — set `IMAGE_REGISTRY=your.registry.com` in `.env` and run `docker login your.registry.com`
 5. **Kubeconfig** — cluster credentials (see [Kubeconfig Setup](#kubeconfig-setup) below)
 
 ## Kubeconfig Setup
@@ -88,7 +88,7 @@ make build-push-picoclaw EMBER_VERSION=0.1
 This:
 - Runs a multi-stage Docker build (Go compilation + Alpine runtime with dev tools)
 - Auto-increments the build number in `.ember-build-numbers`
-- Tags as `reg.r.lastbot.com/ember-claw-sidecar:0.1.<build_number>`
+- Tags as `<registry>/ember-claw-sidecar:0.1.<build_number>`
 - Pushes to the registry
 
 ### 5. Verify Cluster Access
@@ -267,7 +267,7 @@ After code changes to the sidecar or Dockerfile:
 ```bash
 make build-push-picoclaw EMBER_VERSION=0.1
 # Then redeploy instances to pick up the new image
-eclaw deploy research --image reg.r.lastbot.com/ember-claw-sidecar:0.1.2 ...
+eclaw deploy research --image <registry>/ember-claw-sidecar:0.1.2 ...
 ```
 
 ## Troubleshooting
@@ -281,7 +281,7 @@ The sidecar image hasn't been pushed to the registry, or the tag doesn't exist.
 make build-push-picoclaw EMBER_VERSION=0.1
 
 # Redeploy with the correct image tag
-eclaw deploy research --image reg.r.lastbot.com/ember-claw-sidecar:0.1.1 ...
+eclaw deploy research --image <registry>/ember-claw-sidecar:0.1.1 ...
 ```
 
 ### CrashLoopBackOff

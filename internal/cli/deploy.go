@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -20,6 +21,47 @@ func envDefault(flagVal, envVar string) string {
 		return flagVal
 	}
 	return os.Getenv(envVar)
+}
+
+// resolveDefaultImage builds the default container image reference from IMAGE_REGISTRY.
+// Resolution order: IMAGE_REGISTRY env var > first registry in ~/.docker/config.json auths.
+// Returns empty string if no registry is configured (deploy will fail with a helpful error).
+func resolveDefaultImage() string {
+	registry := os.Getenv("IMAGE_REGISTRY")
+	if registry == "" {
+		registry = detectDockerRegistry()
+	}
+	if registry == "" {
+		return ""
+	}
+	return registry + "/" + k8s.DefaultServiceName + ":" + k8s.DefaultImageTag
+}
+
+// detectDockerRegistry reads ~/.docker/config.json and returns the first configured
+// registry from the auths section, or empty string if none found.
+func detectDockerRegistry() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(home + "/.docker/config.json")
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Auths map[string]any `json:"auths"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return ""
+	}
+	for host := range cfg.Auths {
+		// Skip Docker Hub (too generic to be the right registry).
+		if host == "https://index.docker.io/v1/" || host == "docker.io" {
+			continue
+		}
+		return host
+	}
+	return ""
 }
 
 func newDeployCommand() *cobra.Command {
@@ -55,7 +97,15 @@ func newDeployCommand() *cobra.Command {
 			// Apply env var defaults for flags not explicitly set.
 			provider = envDefault(provider, "ECLAW_PROVIDER")
 			model = envDefault(model, "ECLAW_MODEL")
-			image = envDefault(image, "ECLAW_IMAGE")
+			if image == "" {
+				image = envDefault("", "ECLAW_IMAGE")
+			}
+			if image == "" {
+				image = resolveDefaultImage()
+			}
+			if image == "" {
+				return fmt.Errorf("container image required: set IMAGE_REGISTRY or ECLAW_IMAGE in .env, or use --image flag")
+			}
 
 			if provider == "" {
 				return fmt.Errorf("provider required: use --provider or set ECLAW_PROVIDER in .env")
@@ -99,7 +149,7 @@ func newDeployCommand() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (or ECLAW_PROVIDER env)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key (or <PROVIDER>_API_KEY env)")
 	cmd.Flags().StringVar(&model, "model", "", "Model identifier (or ECLAW_MODEL env)")
-	cmd.Flags().StringVar(&image, "image", "reg.r.lastbot.com/ember-claw-sidecar:latest", "Container image (or ECLAW_IMAGE env)")
+	cmd.Flags().StringVar(&image, "image", "", "Container image (or ECLAW_IMAGE / IMAGE_REGISTRY env)")
 	cmd.Flags().StringVar(&cpuRequest, "cpu-request", "100m", "CPU request for the instance pod")
 	cmd.Flags().StringVar(&cpuLimit, "cpu-limit", "500m", "CPU limit for the instance pod")
 	cmd.Flags().StringVar(&memoryRequest, "memory-request", "128Mi", "Memory request for the instance pod")
