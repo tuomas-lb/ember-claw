@@ -47,6 +47,7 @@ type DeployOptions struct {
 	LinearAPIKey  string            // Linear API key (optional)
 	LinearTeamID  string            // Linear team UUID (optional)
 	SlackBotToken string            // Slack bot token (optional)
+	MCPServers    map[string]mcpServerConfig // Additional MCP servers to include
 }
 
 // picoClawConfig is the subset of PicoClaw's config.json we generate for deployment.
@@ -67,6 +68,29 @@ type picoClawConfig struct {
 		} `json:"exec"`
 	} `json:"tools"`
 	ModelList []picoClawModelEntry `json:"model_list"`
+	MCP       *mcpConfig           `json:"mcp,omitempty"`
+}
+
+// mcpConfig holds the MCP server configuration for PicoClaw.
+type mcpConfig struct {
+	Enabled   bool                       `json:"enabled"`
+	Discovery *mcpDiscoveryConfig        `json:"discovery,omitempty"`
+	Servers   map[string]mcpServerConfig `json:"servers"`
+}
+
+type mcpDiscoveryConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+// mcpServerConfig defines a single MCP server entry.
+type mcpServerConfig struct {
+	Enabled bool              `json:"enabled"`
+	Type    string            `json:"type"`              // "stdio", "sse", "http"
+	Command string            `json:"command,omitempty"` // for stdio
+	Args    []string          `json:"args,omitempty"`    // for stdio
+	URL     string            `json:"url,omitempty"`     // for sse/http
+	Headers map[string]string `json:"headers,omitempty"` // for sse/http
+	Env     map[string]string `json:"env,omitempty"`     // for stdio
 }
 
 type picoClawModelEntry struct {
@@ -119,6 +143,25 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 	}
 
 	cfg.ModelList = []picoClawModelEntry{entry}
+
+	// Configure MCP servers — backlog-mcp included by default (in-cluster service).
+	servers := map[string]mcpServerConfig{
+		"backlog": {
+			Enabled: true,
+			Type:    "sse",
+			URL:     "http://backlog-mcp.backlog.svc.cluster.local:8000/sse",
+		},
+	}
+	// Merge any additional MCP servers from deploy options.
+	for name, srv := range opts.MCPServers {
+		servers[name] = srv
+	}
+	cfg.MCP = &mcpConfig{
+		Enabled:   true,
+		Discovery: &mcpDiscoveryConfig{Enabled: false},
+		Servers:   servers,
+	}
+
 	return cfg
 }
 
@@ -657,13 +700,45 @@ func (c *Client) SetSecret(ctx context.Context, instanceName, key, value string)
 	return c.RestartInstance(ctx, instanceName)
 }
 
-// RestartInstance triggers a rolling restart of an instance's deployment by
-// annotating the pod template with a new timestamp.
+// RestartInstance triggers a restart of an instance's deployment.
+// It first checks if the pod is in an error state (ImagePullBackOff, CrashLoopBackOff, etc.)
+// and performs a scale-down/up cycle to force a fresh pod. Otherwise uses annotation-based rollout.
 func (c *Client) RestartInstance(ctx context.Context, name string) error {
-	deploy, err := c.cs.AppsV1().Deployments(c.namespace).Get(ctx, resourceName(name), metav1.GetOptions{})
+	baseName := resourceName(name)
+	deploy, err := c.cs.AppsV1().Deployments(c.namespace).Get(ctx, baseName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get deployment: %w", err)
 	}
+
+	// Check if the pod is stuck in an error state that annotation restart won't fix.
+	needsForceRestart := false
+	pods, _ := c.cs.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: InstanceSelector(name),
+	})
+	if pods != nil {
+		for _, p := range pods.Items {
+			for _, cs := range p.Status.ContainerStatuses {
+				if cs.State.Waiting != nil {
+					reason := cs.State.Waiting.Reason
+					if reason == "ImagePullBackOff" || reason == "ErrImagePull" ||
+						reason == "CrashLoopBackOff" || reason == "CreateContainerError" {
+						needsForceRestart = true
+					}
+				}
+			}
+		}
+	}
+
+	if needsForceRestart {
+		// Delete all pods to force fresh creation.
+		if pods != nil {
+			for _, p := range pods.Items {
+				_ = c.cs.CoreV1().Pods(c.namespace).Delete(ctx, p.Name, metav1.DeleteOptions{})
+			}
+		}
+	}
+
+	// Always bump the restart annotation so the deployment controller creates new pods.
 	if deploy.Spec.Template.Annotations == nil {
 		deploy.Spec.Template.Annotations = make(map[string]string)
 	}
