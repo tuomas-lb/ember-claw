@@ -60,6 +60,7 @@ func NewRootCommand() *cobra.Command {
 		newConfigCommand(),
 		newSetTelegramCommand(),
 		newSetCalDAVCommand(),
+		newSetGmailCommand(),
 	)
 
 	return root
