@@ -170,17 +170,26 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 
 	cfg.ModelList = []picoClawModelEntry{entry}
 
-	// Configure MCP servers (user-provided only; no defaults).
-	if len(opts.MCPServers) > 0 {
-		servers := make(map[string]mcpServerConfig)
-		for name, srv := range opts.MCPServers {
-			servers[name] = srv
-		}
-		cfg.Tools.MCP = &mcpConfig{
-			Enabled:   true,
-			Discovery: &mcpDiscoveryConfig{Enabled: false},
-			Servers:   servers,
-		}
+	// Configure MCP servers — Backlog.md included by default (installed in container).
+	servers := map[string]mcpServerConfig{
+		"backlog": {
+			Enabled: true,
+			Type:    "stdio",
+			Command: "backlog",
+			Args:    []string{"mcp", "start"},
+			Env: map[string]string{
+				"BACKLOG_CWD": MountPath + "/workspace",
+			},
+		},
+	}
+	// Merge any additional MCP servers from deploy options.
+	for name, srv := range opts.MCPServers {
+		servers[name] = srv
+	}
+	cfg.Tools.MCP = &mcpConfig{
+		Enabled:   true,
+		Discovery: &mcpDiscoveryConfig{Enabled: false},
+		Servers:   servers,
 	}
 
 	// Default gateway config for container mode (binds to all interfaces on health port).

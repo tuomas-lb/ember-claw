@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/rs/zerolog/log"
@@ -69,6 +71,9 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// --- Initialize Backlog.md workspace if not already done ---
+	initBacklog(cfg.WorkspacePath())
 
 	// --- Register ember-claw tools (conditionally, based on env vars) ---
 	registerTools(agentLoop)
@@ -221,4 +226,51 @@ func getConfigPath() string {
 		h = "/root"
 	}
 	return h + "/.picoclaw/config.json"
+}
+
+// initBacklog initializes Backlog.md in the workspace if not already done.
+// Runs `backlog init` non-interactively to create the backlog/ directory structure.
+func initBacklog(workspace string) {
+	backlogDir := filepath.Join(workspace, "backlog")
+	if _, err := os.Stat(backlogDir); err == nil {
+		log.Info().Str("dir", backlogDir).Msg("backlog already initialized")
+		return
+	}
+
+	// Ensure workspace exists.
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		log.Warn().Err(err).Msg("failed to create workspace for backlog")
+		return
+	}
+
+	// Also init git if not present (backlog.md requires a git repo).
+	gitDir := filepath.Join(workspace, ".git")
+	if _, err := os.Stat(gitDir); err != nil {
+		gitCmd := exec.Command("git", "init")
+		gitCmd.Dir = workspace
+		if out, err := gitCmd.CombinedOutput(); err != nil {
+			log.Warn().Err(err).Str("output", string(out)).Msg("git init failed")
+			return
+		}
+		// Set git user for commits inside workspace.
+		for _, args := range [][]string{
+			{"config", "user.email", "picoclaw@ember-claw.local"},
+			{"config", "user.name", "PicoClaw"},
+		} {
+			c := exec.Command("git", args...)
+			c.Dir = workspace
+			_ = c.Run()
+		}
+		log.Info().Msg("git repo initialized in workspace")
+	}
+
+	cmd := exec.Command("backlog", "init", "PicoClaw Workspace", "--backlog-dir", "backlog")
+	cmd.Dir = workspace
+	cmd.Stdin = nil // non-interactive
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warn().Err(err).Str("output", string(out)).Msg("backlog init failed (will retry on next restart)")
+		return
+	}
+	log.Info().Str("dir", backlogDir).Msg("backlog initialized")
 }

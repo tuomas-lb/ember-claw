@@ -52,6 +52,9 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 # Pre-install commonly needed Python packages
 RUN pip install --no-cache-dir requests beautifulsoup4 pyyaml
 
+# Install Backlog.md task manager (used by PicoClaw as MCP tool)
+RUN npm install -g backlog.md
+
 # Set up Go environment for picoclaw user
 ENV GOPATH=/home/picoclaw/go
 # pip installs to PVC so packages survive pod restarts
