@@ -12,6 +12,12 @@
 		A1000003 /* Instance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1100003 /* Instance.swift */; };
 		A1000004 /* CLIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1100004 /* CLIService.swift */; };
 		A1000005 /* VisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1100005 /* VisualEffectView.swift */; };
+		A1000006 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1100006 /* SidebarView.swift */; };
+		A1000007 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1100007 /* ChatView.swift */; };
+		A1000008 /* DeployWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1100008 /* DeployWizardView.swift */; };
+		A1000009 /* StatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1100009 /* StatusBadge.swift */; };
+		A100000A /* InstanceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A110000A /* InstanceDetailView.swift */; };
+		A100000B /* GlassBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = A110000B /* GlassBackground.swift */; };
 		A1000010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1100010 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -24,6 +30,12 @@
 		A1100010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1100011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1100012 /* EmberClawUI.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EmberClawUI.entitlements; sourceTree = "<group>"; };
+		A1100006 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		A1100007 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		A1100008 /* DeployWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployWizardView.swift; sourceTree = "<group>"; };
+		A1100009 /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
+		A110000A /* InstanceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceDetailView.swift; sourceTree = "<group>"; };
+		A110000B /* GlassBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassBackground.swift; sourceTree = "<group>"; };
 		A1100020 /* EmberClawUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EmberClawUI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -71,6 +83,12 @@
 		A1200004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				A1100006 /* SidebarView.swift */,
+				A1100007 /* ChatView.swift */,
+				A1100008 /* DeployWizardView.swift */,
+				A1100009 /* StatusBadge.swift */,
+				A110000A /* InstanceDetailView.swift */,
+				A110000B /* GlassBackground.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -165,6 +183,12 @@
 				A1000003 /* Instance.swift in Sources */,
 				A1000004 /* CLIService.swift in Sources */,
 				A1000005 /* VisualEffectView.swift in Sources */,
+				A1000006 /* SidebarView.swift in Sources */,
+				A1000007 /* ChatView.swift in Sources */,
+				A1000008 /* DeployWizardView.swift in Sources */,
+				A1000009 /* StatusBadge.swift in Sources */,
+				A100000A /* InstanceDetailView.swift in Sources */,
+				A100000B /* GlassBackground.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
