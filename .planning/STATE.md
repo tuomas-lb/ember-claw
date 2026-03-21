@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-03-13)
 Phase: 3 of 3 (Build + Deploy Pipeline)
 Plan: 1 of 2 in current phase (03-01 complete, advancing to 03-02)
 Status: In progress
-Last activity: 2026-03-21 - Completed quick task 1: EmberClaw UI desktop app
+Last activity: 2026-03-21 - Completed quick task 2: Gmail MCP server + set-gmail CLI command
 
 Progress: [██████░░░░] 57%
 
@@ -86,6 +86,8 @@ Recent decisions affecting current work:
 - [Phase 03-01]: SHELL := /bin/bash + export PATH in Makefile ensures grep/sed/cut/head available in all recipe shells
 - [Phase 03-01]: deploy-picoclaw has build-eclaw as prerequisite to auto-compile eclaw binary before wizard runs
 - [Phase 03-01]: API key collected with read -s (silent) to prevent terminal echo; never logged after collection
+- [Quick-2]: Single 'gmail' MCP server key with multi-mailbox JSON config (not per-mailbox entries like caldav)
+- [Quick-2]: imapflow search() returns false|number[] -- guarded with || [] fallback
 
 ### Pending Todos
 
@@ -102,9 +104,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 1 | Create EmberClaw UI desktop app with glassmorphism, instance list, chat, deploy wizard | 2026-03-21 | 295b64b | [1-create-emberclaw-ui-desktop-app-with-sem](./quick/1-create-emberclaw-ui-desktop-app-with-sem/) |
+| 2 | Gmail MCP server with 6 IMAP tools + eclaw set-gmail CLI command | 2026-03-21 | 64fe474 | [2-build-self-hosted-gmail-mcp-server-for-p](./quick/2-build-self-hosted-gmail-mcp-server-for-p/) |
 
 ## Session Continuity
 
-Last session: 2026-03-21T19:16:07Z
-Stopped at: Completed quick task 1 (EmberClawUI macOS desktop app with glassmorphism design)
+Last session: 2026-03-21T20:04:35Z
+Stopped at: Completed quick task 2 (Gmail MCP server + set-gmail CLI command)
 Resume file: None
