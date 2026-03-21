@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +26,8 @@ const (
 	DefaultServiceName = "ember-claw-sidecar"
 	// DefaultImageTag is the default image tag.
 	DefaultImageTag = "latest"
+	// RegistrySecretName is the well-known name of the image pull secret.
+	RegistrySecretName = "eclaw-registry"
 )
 
 // DeployOptions contains all configuration for deploying a PicoClaw instance.
@@ -279,6 +282,14 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 	}
 
 	// 5. Create Deployment with envFrom (secretRef + configMapRef), PVC mount (K8S-03, CONF-05).
+	// Add imagePullSecrets if registry credentials exist in the namespace.
+	var imagePullSecrets []corev1.LocalObjectReference
+	if c.hasRegistrySecret(ctx) {
+		imagePullSecrets = []corev1.LocalObjectReference{
+			{Name: RegistrySecretName},
+		}
+	}
+
 	replicas := int32(1)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -296,6 +307,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 					Labels: instanceLabels,
 				},
 				Spec: corev1.PodSpec{
+					ImagePullSecrets: imagePullSecrets,
 					Containers: []corev1.Container{
 						{
 							Name:  "sidecar",
@@ -701,5 +713,45 @@ func (c *Client) FindRunningPod(ctx context.Context, name string) (string, error
 	}
 
 	return "", fmt.Errorf("no running pod found for instance %q", name)
+}
+
+// SetRegistryCredentials creates or updates a docker-registry Secret in the namespace
+// that can be used as imagePullSecrets for pulling container images from a private registry.
+func (c *Client) SetRegistryCredentials(ctx context.Context, server, username, password string) error {
+	if err := c.EnsureNamespace(ctx); err != nil {
+		return fmt.Errorf("ensure namespace: %w", err)
+	}
+
+	// Build the dockerconfigjson payload.
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	dockerConfig := fmt.Sprintf(`{"auths":{%q:{"username":%q,"password":%q,"auth":%q}}}`,
+		server, username, password, auth)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RegistrySecretName,
+			Namespace: c.namespace,
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			corev1.DockerConfigJsonKey: []byte(dockerConfig),
+		},
+	}
+
+	if _, err := c.cs.CoreV1().Secrets(c.namespace).Create(ctx, secret, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+		if _, err := c.cs.CoreV1().Secrets(c.namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update registry secret: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("create registry secret: %w", err)
+	}
+
+	return nil
+}
+
+// hasRegistrySecret checks if the eclaw-registry pull secret exists in the namespace.
+func (c *Client) hasRegistrySecret(ctx context.Context) bool {
+	_, err := c.cs.CoreV1().Secrets(c.namespace).Get(ctx, RegistrySecretName, metav1.GetOptions{})
+	return err == nil
 }
 

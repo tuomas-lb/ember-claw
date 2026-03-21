@@ -53,6 +53,7 @@ func NewRootCommand() *cobra.Command {
 		newChatCommand(),
 		newModelsCommand(),
 		newSetSecretCommand(),
+		newSetRegistryCommand(),
 	)
 
 	return root
