@@ -55,6 +55,8 @@ func NewRootCommand() *cobra.Command {
 		newSetSecretCommand(),
 		newSetRegistryCommand(),
 		newRestartCommand(),
+		newExposeCommand(),
+		newUnexposeCommand(),
 	)
 
 	return root

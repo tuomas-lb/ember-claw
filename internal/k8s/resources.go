@@ -11,6 +11,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -832,5 +833,199 @@ func (c *Client) SetRegistryCredentials(ctx context.Context, server, username, p
 func (c *Client) hasRegistrySecret(ctx context.Context) bool {
 	_, err := c.cs.CoreV1().Secrets(c.namespace).Get(ctx, RegistrySecretName, metav1.GetOptions{})
 	return err == nil
+}
+
+// ExposeOptions contains configuration for exposing an instance externally.
+type ExposeOptions struct {
+	Name     string // Instance name
+	Type     string // "nodeport", "loadbalancer", or "ingress"
+	NodePort int32  // Optional specific NodePort number (only for nodeport type)
+	Host     string // Hostname for ingress (required for ingress type)
+	TLS      bool   // Enable TLS via cert-manager (only for ingress)
+	Issuer   string // cert-manager ClusterIssuer name (default: letsencrypt-prod)
+	Class    string // Ingress class (default: nginx)
+	Path     string // URL path prefix (default: /)
+}
+
+// ExposeResult holds the result of exposing an instance.
+type ExposeResult struct {
+	Type     string
+	URL      string
+	NodePort int32 // Populated for nodeport type
+}
+
+// ExposeInstance creates external access for an instance's HTTP port (8080).
+// It creates a separate -ext Service (NodePort, LoadBalancer, or ClusterIP for ingress backing)
+// and optionally an Ingress resource. Uses upsert semantics.
+func (c *Client) ExposeInstance(ctx context.Context, opts ExposeOptions) (*ExposeResult, error) {
+	baseName := resourceName(opts.Name)
+	extSvcName := baseName + "-ext"
+	instanceLabels := InstanceLabels(opts.Name)
+
+	// Determine the Service type.
+	var svcType corev1.ServiceType
+	switch opts.Type {
+	case "nodeport":
+		svcType = corev1.ServiceTypeNodePort
+	case "loadbalancer":
+		svcType = corev1.ServiceTypeLoadBalancer
+	case "ingress":
+		svcType = corev1.ServiceTypeClusterIP
+	default:
+		return nil, fmt.Errorf("unsupported expose type %q: must be nodeport, loadbalancer, or ingress", opts.Type)
+	}
+
+	// Build the external Service.
+	svcPort := corev1.ServicePort{
+		Name:       "http",
+		Port:       8080,
+		TargetPort: intstr.FromInt32(8080),
+		Protocol:   corev1.ProtocolTCP,
+	}
+	if opts.Type == "nodeport" && opts.NodePort > 0 {
+		svcPort.NodePort = opts.NodePort
+	}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      extSvcName,
+			Namespace: c.namespace,
+			Labels:    instanceLabels,
+		},
+		Spec: corev1.ServiceSpec{
+			Type:     svcType,
+			Selector: instanceLabels,
+			Ports:    []corev1.ServicePort{svcPort},
+		},
+	}
+
+	// Upsert the Service.
+	createdSvc, err := c.cs.CoreV1().Services(c.namespace).Create(ctx, svc, metav1.CreateOptions{})
+	if k8serrors.IsAlreadyExists(err) {
+		// Fetch existing to preserve ClusterIP (immutable field).
+		existing, getErr := c.cs.CoreV1().Services(c.namespace).Get(ctx, extSvcName, metav1.GetOptions{})
+		if getErr != nil {
+			return nil, fmt.Errorf("get existing service: %w", getErr)
+		}
+		svc.Spec.ClusterIP = existing.Spec.ClusterIP
+		svc.ResourceVersion = existing.ResourceVersion
+		createdSvc, err = c.cs.CoreV1().Services(c.namespace).Update(ctx, svc, metav1.UpdateOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("update external service: %w", err)
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("create external service: %w", err)
+	}
+
+	result := &ExposeResult{Type: opts.Type}
+
+	// For ingress type, also create the Ingress resource.
+	if opts.Type == "ingress" {
+		if opts.Host == "" {
+			return nil, fmt.Errorf("--host is required for ingress type")
+		}
+
+		pathType := networkingv1.PathTypePrefix
+		ingress := &networkingv1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        baseName,
+				Namespace:   c.namespace,
+				Labels:      instanceLabels,
+				Annotations: map[string]string{},
+			},
+			Spec: networkingv1.IngressSpec{
+				IngressClassName: &opts.Class,
+				Rules: []networkingv1.IngressRule{
+					{
+						Host: opts.Host,
+						IngressRuleValue: networkingv1.IngressRuleValue{
+							HTTP: &networkingv1.HTTPIngressRuleValue{
+								Paths: []networkingv1.HTTPIngressPath{
+									{
+										Path:     opts.Path,
+										PathType: &pathType,
+										Backend: networkingv1.IngressBackend{
+											Service: &networkingv1.IngressServiceBackend{
+												Name: extSvcName,
+												Port: networkingv1.ServiceBackendPort{
+													Number: 8080,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		if opts.TLS {
+			ingress.Annotations["cert-manager.io/cluster-issuer"] = opts.Issuer
+			ingress.Spec.TLS = []networkingv1.IngressTLS{
+				{
+					Hosts:      []string{opts.Host},
+					SecretName: baseName + "-tls",
+				},
+			}
+		}
+
+		// Upsert the Ingress.
+		if _, err := c.cs.NetworkingV1().Ingresses(c.namespace).Create(ctx, ingress, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+			existing, getErr := c.cs.NetworkingV1().Ingresses(c.namespace).Get(ctx, baseName, metav1.GetOptions{})
+			if getErr != nil {
+				return nil, fmt.Errorf("get existing ingress: %w", getErr)
+			}
+			ingress.ResourceVersion = existing.ResourceVersion
+			if _, err := c.cs.NetworkingV1().Ingresses(c.namespace).Update(ctx, ingress, metav1.UpdateOptions{}); err != nil {
+				return nil, fmt.Errorf("update ingress: %w", err)
+			}
+		} else if err != nil {
+			return nil, fmt.Errorf("create ingress: %w", err)
+		}
+
+		scheme := "http"
+		if opts.TLS {
+			scheme = "https"
+		}
+		result.URL = fmt.Sprintf("%s://%s%s", scheme, opts.Host, opts.Path)
+	}
+
+	// Build result URL for non-ingress types.
+	switch opts.Type {
+	case "nodeport":
+		nodePort := int32(0)
+		if createdSvc != nil && len(createdSvc.Spec.Ports) > 0 {
+			nodePort = createdSvc.Spec.Ports[0].NodePort
+		}
+		result.NodePort = nodePort
+		result.URL = fmt.Sprintf("<node-ip>:%d", nodePort)
+	case "loadbalancer":
+		result.URL = fmt.Sprintf("%s (port 8080, awaiting external IP)", extSvcName)
+	}
+
+	return result, nil
+}
+
+// UnexposeInstance removes external access for an instance by deleting
+// the -ext Service and any Ingress resource.
+func (c *Client) UnexposeInstance(ctx context.Context, name string) error {
+	baseName := resourceName(name)
+	extSvcName := baseName + "-ext"
+
+	// Delete the external Service if it exists.
+	err := c.cs.CoreV1().Services(c.namespace).Delete(ctx, extSvcName, metav1.DeleteOptions{})
+	if err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("delete external service %s: %w", extSvcName, err)
+	}
+
+	// Delete the Ingress if it exists.
+	err = c.cs.NetworkingV1().Ingresses(c.namespace).Delete(ctx, baseName, metav1.DeleteOptions{})
+	if err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("delete ingress %s: %w", baseName, err)
+	}
+
+	return nil
 }
 

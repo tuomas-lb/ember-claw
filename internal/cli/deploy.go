@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/tuomas-lb/ember-claw/internal/k8s"
 	"github.com/fatih/color"
@@ -99,6 +100,13 @@ func newDeployCommand() *cobra.Command {
 			model = envDefault(model, "ECLAW_MODEL")
 			if image == "" {
 				image = envDefault("", "ECLAW_IMAGE")
+			}
+			// If ECLAW_IMAGE has no registry prefix (no "/"), prepend IMAGE_REGISTRY.
+			if image != "" && !strings.Contains(image, "/") {
+				registry := os.Getenv("IMAGE_REGISTRY")
+				if registry != "" {
+					image = registry + "/" + image
+				}
 			}
 			if image == "" {
 				image = resolveDefaultImage()
