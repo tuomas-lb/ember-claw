@@ -54,6 +54,7 @@ func NewRootCommand() *cobra.Command {
 		newModelsCommand(),
 		newSetSecretCommand(),
 		newSetRegistryCommand(),
+		newRestartCommand(),
 	)
 
 	return root

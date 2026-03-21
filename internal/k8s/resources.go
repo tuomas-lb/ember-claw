@@ -654,8 +654,13 @@ func (c *Client) SetSecret(ctx context.Context, instanceName, key, value string)
 		return fmt.Errorf("update secret %s: %w", secretName, err)
 	}
 
-	// Trigger a rollout restart so the pod picks up the new env var.
-	deploy, err := c.cs.AppsV1().Deployments(c.namespace).Get(ctx, resourceName(instanceName), metav1.GetOptions{})
+	return c.RestartInstance(ctx, instanceName)
+}
+
+// RestartInstance triggers a rolling restart of an instance's deployment by
+// annotating the pod template with a new timestamp.
+func (c *Client) RestartInstance(ctx context.Context, name string) error {
+	deploy, err := c.cs.AppsV1().Deployments(c.namespace).Get(ctx, resourceName(name), metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get deployment: %w", err)
 	}
@@ -666,7 +671,6 @@ func (c *Client) SetSecret(ctx context.Context, instanceName, key, value string)
 	if _, err := c.cs.AppsV1().Deployments(c.namespace).Update(ctx, deploy, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("restart deployment: %w", err)
 	}
-
 	return nil
 }
 
