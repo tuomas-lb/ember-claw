@@ -52,6 +52,7 @@ type DeployOptions struct {
 }
 
 // picoClawConfig is the subset of PicoClaw's config.json we generate for deployment.
+// Field paths match PicoClaw's official config structure (tools.mcp, channels, gateway).
 type picoClawConfig struct {
 	Agents struct {
 		Defaults struct {
@@ -67,9 +68,33 @@ type picoClawConfig struct {
 			EnableDenyPatterns bool `json:"enable_deny_patterns"`
 			AllowRemote        bool `json:"allow_remote"`
 		} `json:"exec"`
+		MCP *mcpConfig `json:"mcp,omitempty"`
 	} `json:"tools"`
 	ModelList []picoClawModelEntry `json:"model_list"`
-	MCP       *mcpConfig           `json:"mcp,omitempty"`
+	Channels  *channelsConfig      `json:"channels,omitempty"`
+	Gateway   *gatewayConfig       `json:"gateway,omitempty"`
+}
+
+// channelsConfig holds channel configuration for PicoClaw gateway mode.
+type channelsConfig struct {
+	Telegram *telegramChannelConfig `json:"telegram,omitempty"`
+	// Other channels can be added here or configured via config push.
+}
+
+// telegramChannelConfig holds Telegram bot configuration.
+type telegramChannelConfig struct {
+	Enabled            bool     `json:"enabled"`
+	Token              string   `json:"token"`
+	AllowFrom          []string `json:"allow_from,omitempty"`
+	BaseURL            string   `json:"base_url,omitempty"`
+	Proxy              string   `json:"proxy,omitempty"`
+	ReasoningChannelID string   `json:"reasoning_channel_id,omitempty"`
+}
+
+// gatewayConfig holds PicoClaw gateway settings.
+type gatewayConfig struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
 }
 
 // mcpConfig holds the MCP server configuration for PicoClaw.
@@ -157,10 +182,16 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 	for name, srv := range opts.MCPServers {
 		servers[name] = srv
 	}
-	cfg.MCP = &mcpConfig{
+	cfg.Tools.MCP = &mcpConfig{
 		Enabled:   true,
 		Discovery: &mcpDiscoveryConfig{Enabled: false},
 		Servers:   servers,
+	}
+
+	// Default gateway config for container mode (binds to all interfaces on health port).
+	cfg.Gateway = &gatewayConfig{
+		Host: "0.0.0.0",
+		Port: 8080,
 	}
 
 	return cfg
@@ -677,6 +708,85 @@ func (c *Client) GetInstanceStatus(ctx context.Context, name string) (*InstanceS
 	}
 
 	return status, nil
+}
+
+// PullConfig retrieves the raw config.json for an instance from its K8s secret.
+func (c *Client) PullConfig(ctx context.Context, instanceName string) ([]byte, error) {
+	secretName := resourceName(instanceName) + "-config"
+	secret, err := c.cs.CoreV1().Secrets(c.namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get secret %s: %w", secretName, err)
+	}
+	if v, ok := secret.Data["config.json"]; ok {
+		return v, nil
+	}
+	return nil, fmt.Errorf("secret %s has no config.json key", secretName)
+}
+
+// PushConfig writes raw config.json bytes to an instance's K8s secret and restarts the pod.
+func (c *Client) PushConfig(ctx context.Context, instanceName string, configJSON []byte) error {
+	// Validate it's valid JSON.
+	var check map[string]interface{}
+	if err := json.Unmarshal(configJSON, &check); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	secretName := resourceName(instanceName) + "-config"
+	secret, err := c.cs.CoreV1().Secrets(c.namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get secret %s: %w", secretName, err)
+	}
+	if secret.Data == nil {
+		secret.Data = make(map[string][]byte)
+	}
+	secret.Data["config.json"] = configJSON
+
+	if _, err := c.cs.CoreV1().Secrets(c.namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update secret %s: %w", secretName, err)
+	}
+	return c.RestartInstance(ctx, instanceName)
+}
+
+// SetTelegram configures Telegram channel in the instance's config.json.
+// It reads the existing config, patches in the telegram channel + gateway settings, and pushes back.
+func (c *Client) SetTelegram(ctx context.Context, instanceName, token string, allowFrom []string) error {
+	raw, err := c.PullConfig(ctx, instanceName)
+	if err != nil {
+		return err
+	}
+
+	// Unmarshal into generic map to preserve all existing fields.
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return fmt.Errorf("parse existing config: %w", err)
+	}
+
+	// Patch channels.telegram
+	channels, ok := cfg["channels"].(map[string]interface{})
+	if !ok {
+		channels = map[string]interface{}{}
+	}
+	tgConfig := map[string]interface{}{
+		"enabled":    true,
+		"token":      token,
+		"allow_from": allowFrom,
+	}
+	channels["telegram"] = tgConfig
+	cfg["channels"] = channels
+
+	// Ensure gateway config exists with sane defaults for container.
+	if _, ok := cfg["gateway"]; !ok {
+		cfg["gateway"] = map[string]interface{}{
+			"host": "0.0.0.0",
+			"port": 8080,
+		}
+	}
+
+	updated, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal updated config: %w", err)
+	}
+	return c.PushConfig(ctx, instanceName, updated)
 }
 
 // SetSecret adds or updates a key-value pair in the instance's Secret.

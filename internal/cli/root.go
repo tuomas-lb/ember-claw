@@ -57,6 +57,8 @@ func NewRootCommand() *cobra.Command {
 		newRestartCommand(),
 		newExposeCommand(),
 		newUnexposeCommand(),
+		newConfigCommand(),
+		newSetTelegramCommand(),
 	)
 
 	return root

@@ -4,6 +4,9 @@
 // port 50051. It also starts an HTTP health server on port 8080 for K8s
 // liveness (/health) and readiness (/ready) probes (K8S-04).
 //
+// When channels are configured (e.g., Telegram), the sidecar also starts
+// PicoClaw's channel manager (gateway mode) alongside the gRPC server.
+//
 // Config is resolved via the standard PicoClaw priority chain:
 //
 //	PICOCLAW_CONFIG env var (full path to config.json)
@@ -15,6 +18,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -23,8 +27,11 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/channels"
+	_ "github.com/sipeed/picoclaw/pkg/channels/telegram"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/health"
+	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"google.golang.org/grpc"
 	grpchealth "google.golang.org/grpc/health"
@@ -70,9 +77,29 @@ func main() {
 	go agentLoop.Run(ctx)
 	log.Info().Msg("agent loop started")
 
+	// --- Channel manager (gateway mode) ---
+	// Start channels (Telegram, etc.) if any are configured.
+	var channelMgr *channels.Manager
+	if hasChannelsEnabled(cfg) {
+		channelMgr, err = startChannels(ctx, cfg, agentLoop, msgBus)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to start channels (continuing without)")
+		}
+	}
+
 	// --- Health server (Pattern 4) ---
 	// PicoClaw's health.Server exposes /health and /ready for K8s probes.
 	healthSrv := health.NewServer("0.0.0.0", 8080)
+
+	// If channels need webhooks, set up HTTP server on the health server.
+	if channelMgr != nil {
+		addr := fmt.Sprintf("%s:%d", cfg.Gateway.Host, cfg.Gateway.Port)
+		if addr == ":0" || addr == ":" {
+			addr = "0.0.0.0:8080"
+		}
+		channelMgr.SetupHTTPServer(addr, healthSrv)
+	}
+
 	healthSrv.SetReady(true)
 	go func() {
 		if err := healthSrv.Start(); err != nil {
@@ -114,9 +141,43 @@ func main() {
 	<-sig
 
 	log.Info().Msg("shutting down")
+	if channelMgr != nil {
+		channelMgr.StopAll(ctx)
+	}
 	grpcSrv.GracefulStop()
 	agentLoop.Stop()
 	log.Info().Msg("shutdown complete")
+}
+
+// hasChannelsEnabled checks if any messaging channel is enabled in the config.
+func hasChannelsEnabled(cfg *config.Config) bool {
+	return cfg.Channels.Telegram.Enabled ||
+		cfg.Channels.Discord.Enabled ||
+		cfg.Channels.Slack.Enabled ||
+		cfg.Channels.WhatsApp.Enabled
+}
+
+// startChannels initializes and starts the PicoClaw channel manager.
+func startChannels(ctx context.Context, cfg *config.Config, agentLoop *agent.AgentLoop, msgBus *bus.MessageBus) (*channels.Manager, error) {
+	mediaStore := media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
+		Enabled: false, // Keep it simple for container mode
+	})
+
+	mgr, err := channels.NewManager(cfg, msgBus, mediaStore)
+	if err != nil {
+		return nil, fmt.Errorf("create channel manager: %w", err)
+	}
+
+	agentLoop.SetChannelManager(mgr)
+	agentLoop.SetMediaStore(mediaStore)
+
+	if err := mgr.StartAll(ctx); err != nil {
+		return nil, fmt.Errorf("start channels: %w", err)
+	}
+
+	enabled := mgr.GetEnabledChannels()
+	log.Info().Strs("channels", enabled).Msg("channels started")
+	return mgr, nil
 }
 
 // registerTools registers ember-claw tools (Linear, Slack) to the agent loop.
@@ -143,9 +204,9 @@ func registerTools(agentLoop *agent.AgentLoop) {
 // getConfigPath resolves the PicoClaw config file path using the standard
 // priority chain (Pitfall 1: container must set PICOCLAW_HOME).
 //
-//	1. PICOCLAW_CONFIG env var (full path)
-//	2. $PICOCLAW_HOME/config.json
-//	3. ~/.picoclaw/config.json
+//  1. PICOCLAW_CONFIG env var (full path)
+//  2. $PICOCLAW_HOME/config.json
+//  3. ~/.picoclaw/config.json
 func getConfigPath() string {
 	if p := os.Getenv("PICOCLAW_CONFIG"); p != "" {
 		return p
