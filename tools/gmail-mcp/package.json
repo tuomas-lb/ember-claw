@@ -1,0 +1,23 @@
+{
+  "name": "gmail-mcp",
+  "version": "1.0.0",
+  "description": "Self-hosted Gmail MCP server for PicoClaw — read-only IMAP access to multiple mailboxes",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "gmail-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "imapflow": "^1.0.171"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "license": "UNLICENSED"
+}
