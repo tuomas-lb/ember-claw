@@ -4,7 +4,7 @@ GO    ?= $(shell which go 2>/dev/null || echo /usr/local/go/bin/go)
 
 SERVICE_NAME      := ember-claw-sidecar
 DOCKERFILE        := Dockerfile
-IMAGE_REGISTRY    ?= $(shell cat .env 2>/dev/null | grep -m1 '^IMAGE_REGISTRY=' | cut -d= -f2- | tr -d '"'"'"'  || echo "")
+IMAGE_REGISTRY    ?= $(shell grep -m1 '^IMAGE_REGISTRY=' .env 2>/dev/null | cut -d= -f2- | sed 's/^["'"'"']//;s/["'"'"']$$//')
 EMBER_VERSION     ?=
 BUILD_NUMBER_FILE := .ember-build-numbers
 K8S_NAMESPACE     := picoclaw
