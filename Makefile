@@ -67,7 +67,7 @@ build-picoclaw: ## Build Docker image for ember-claw-sidecar (use EMBER_VERSION=
 		IMAGE_TAG="$(EMBER_VERSION).$$BUILD_NUMBER"; \
 		echo "Building Docker image: $(IMAGE_REGISTRY)/$$SERVICE_NAME:$$IMAGE_TAG"; \
 	else \
-		IMAGE_TAG="production"; \
+		IMAGE_TAG="latest"; \
 		echo "Building Docker image: $(IMAGE_REGISTRY)/$(SERVICE_NAME):$$IMAGE_TAG"; \
 	fi; \
 	docker buildx build --platform linux/amd64 \
@@ -93,7 +93,7 @@ push-picoclaw: ## Push Docker image to registry (run build-picoclaw first)
 		fi; \
 		IMAGE_TAG="$(EMBER_VERSION).$$BUILD_NUMBER"; \
 	else \
-		IMAGE_TAG="production"; \
+		IMAGE_TAG="latest"; \
 	fi; \
 	echo "Pushing $(IMAGE_REGISTRY)/$(SERVICE_NAME):$$IMAGE_TAG"; \
 	docker push $(IMAGE_REGISTRY)/$(SERVICE_NAME):$$IMAGE_TAG; \

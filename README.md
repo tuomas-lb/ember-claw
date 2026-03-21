@@ -334,7 +334,7 @@ See [docs/tool-development.md](docs/tool-development.md) for how to add new tool
 | `make build-push-picoclaw` | Build and push in one step |
 | `make deploy-picoclaw` | Interactive deployment wizard |
 
-Set `EMBER_VERSION=x.y` for versioned builds (auto-increments build number). Without it, tags as `production`.
+Set `EMBER_VERSION=x.y` for versioned builds (auto-increments build number). Without it, tags as `latest`.
 
 ## Project Structure
 
