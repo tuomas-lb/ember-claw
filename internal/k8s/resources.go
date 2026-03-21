@@ -49,6 +49,7 @@ type DeployOptions struct {
 	LinearTeamID  string            // Linear team UUID (optional)
 	SlackBotToken string            // Slack bot token (optional)
 	MCPServers    map[string]mcpServerConfig // Additional MCP servers to include
+	Identity      string            // Custom IDENTITY.md content (optional, uses default if empty)
 }
 
 // picoClawConfig is the subset of PicoClaw's config.json we generate for deployment.
@@ -201,6 +202,67 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 	return cfg
 }
 
+// defaultIdentity returns the default IDENTITY.md content for a PicoClaw instance.
+// This is loaded by PicoClaw at startup as part of the system prompt.
+func defaultIdentity(instanceName string) string {
+	return fmt.Sprintf(`# Identity
+
+You are %s, an AI assistant running inside a Kubernetes container managed by EmberClaw.
+
+## Environment
+
+- You run in an Alpine Linux container with full shell access
+- Your workspace is at /home/picoclaw/.picoclaw/workspace
+- You have curl, jq, python3, nodejs, and go available
+- pip packages persist across restarts (installed to PVC)
+- You have backlog.md for task management (available as MCP tool)
+
+## Communication
+
+- Users reach you via gRPC (eclaw chat) or Telegram (if configured)
+- When using Telegram, messages are delivered through PicoClaw's channel system automatically
+- The "message" tool sends messages back to the user on the CURRENT conversation channel
+- Do NOT invent or hallucinate tools that don't exist (no beepctl, no fake APIs)
+
+## Behavior
+
+- Be concise and direct — avoid excessive apologies or caveats
+- When asked to do something, do it — don't explain what you would do
+- If a tool fails, say so briefly and suggest an alternative
+- Use exec tool for shell commands — you have full access, no restrictions
+- If you don't have a tool for something, say so — don't pretend
+`, instanceName)
+}
+
+// defaultAgentsInstructions returns the default AGENTS.md content.
+// This configures PicoClaw agent behavior.
+func defaultAgentsInstructions() string {
+	return `# Agent Instructions
+
+## Tool Usage Rules
+
+1. Only use tools that appear in your actual tool list
+2. Never fabricate tool names or capabilities
+3. If a tool call fails, report the error concisely and move on
+4. Use exec for shell commands — you have unrestricted access in this container
+5. Use backlog MCP tools for task/ticket management
+
+## Response Style
+
+- Be concise — no walls of text
+- Skip pleasantries in task-oriented conversations
+- Show command output directly, don't paraphrase it
+- When executing commands, show the actual output
+- If something doesn't work, say what went wrong in one sentence
+
+## Task Management
+
+- Use backlog tools (mcp_backlog_task_*) for tracking work
+- Create tasks when asked to remember or track something
+- Check existing tasks before creating duplicates
+`
+}
+
 // InstanceSummary holds a brief summary of a PicoClaw instance for list output.
 type InstanceSummary struct {
 	Name            string
@@ -292,7 +354,33 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 		return fmt.Errorf("create secret: %w", err)
 	}
 
-	// 2. Create or update ConfigMap for custom environment variables (CONF-04).
+	// 2a. Create or update ConfigMap for bootstrap files (IDENTITY.md, AGENTS.md).
+	// These are PicoClaw's "system prompt" — loaded at startup from workspace directory.
+	bootstrapCMName := baseName + "-bootstrap"
+	identityContent := opts.Identity
+	if identityContent == "" {
+		identityContent = defaultIdentity(opts.Name)
+	}
+	bootstrapCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bootstrapCMName,
+			Namespace: c.namespace,
+			Labels:    instanceLabels,
+		},
+		Data: map[string]string{
+			"IDENTITY.md": identityContent,
+			"AGENTS.md":   defaultAgentsInstructions(),
+		},
+	}
+	if _, err := c.cs.CoreV1().ConfigMaps(c.namespace).Create(ctx, bootstrapCM, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+		if _, err := c.cs.CoreV1().ConfigMaps(c.namespace).Update(ctx, bootstrapCM, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update bootstrap configmap: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("create bootstrap configmap: %w", err)
+	}
+
+	// 2b. Create or update ConfigMap for custom environment variables (CONF-04).
 	cmData := make(map[string]string)
 	for k, v := range opts.CustomEnv {
 		cmData[k] = v
@@ -387,6 +475,28 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 				},
 				Spec: corev1.PodSpec{
 					ImagePullSecrets: imagePullSecrets,
+					// Init container: copy bootstrap files to workspace (only if not already present).
+					InitContainers: []corev1.Container{
+						{
+							Name:  "bootstrap",
+							Image: "alpine:3.21",
+							Command: []string{"sh", "-c", `
+								mkdir -p /workspace/workspace &&
+								for f in IDENTITY.md AGENTS.md; do
+									if [ ! -f "/workspace/workspace/$f" ]; then
+										cp "/bootstrap/$f" "/workspace/workspace/$f"
+										echo "Installed $f"
+									else
+										echo "$f already exists, skipping"
+									fi
+								done
+							`},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "data", MountPath: "/workspace"},
+								{Name: "bootstrap", MountPath: "/bootstrap", ReadOnly: true},
+							},
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:  "sidecar",
@@ -471,6 +581,16 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 									SecretName: configSecretName,
 									Items: []corev1.KeyToPath{
 										{Key: "config.json", Path: "config.json"},
+									},
+								},
+							},
+						},
+						{
+							Name: "bootstrap",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: bootstrapCMName,
 									},
 								},
 							},

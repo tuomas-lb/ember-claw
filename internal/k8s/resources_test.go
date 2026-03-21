@@ -54,7 +54,7 @@ func TestDeployInstance(t *testing.T) {
 	// Check ConfigMap created
 	cms, err := fakeCS.CoreV1().ConfigMaps(testNamespace).List(ctx, metav1.ListOptions{})
 	require.NoError(t, err)
-	assert.Len(t, cms.Items, 1, "expected 1 ConfigMap")
+	assert.Len(t, cms.Items, 2, "expected 2 ConfigMaps (bootstrap + env)")
 
 	// Check PVC created
 	pvcs, err := fakeCS.CoreV1().PersistentVolumeClaims(testNamespace).List(ctx, metav1.ListOptions{})
@@ -451,10 +451,19 @@ func TestDeployInstance_CustomEnv(t *testing.T) {
 
 	fakeCS := client.cs.(*fake.Clientset)
 	cms, _ := fakeCS.CoreV1().ConfigMaps(testNamespace).List(ctx, metav1.ListOptions{})
-	require.Len(t, cms.Items, 1)
+	require.Len(t, cms.Items, 2) // bootstrap + env configmaps
 
-	assert.Equal(t, "debug", cms.Items[0].Data["LOG_LEVEL"])
-	assert.Equal(t, "enabled", cms.Items[0].Data["FEATURE_X"])
+	// Find the env configmap (not the bootstrap one).
+	var envCM *corev1.ConfigMap
+	for i := range cms.Items {
+		if _, isBootstrap := cms.Items[i].Data["IDENTITY.md"]; !isBootstrap {
+			envCM = &cms.Items[i]
+			break
+		}
+	}
+	require.NotNil(t, envCM, "env configmap should exist")
+	assert.Equal(t, "debug", envCM.Data["LOG_LEVEL"])
+	assert.Equal(t, "enabled", envCM.Data["FEATURE_X"])
 }
 
 // TestDeployInstance_StorageClass verifies custom storage class is applied to PVC.
