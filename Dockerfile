@@ -64,6 +64,23 @@ RUN pip install --no-cache-dir --break-system-packages requests beautifulsoup4 p
 # Install Backlog.md task manager and CalDAV MCP server (used by PicoClaw as MCP tools)
 RUN npm install -g backlog.md caldav-mcp
 
+# Install cloud CLI tools
+# Google Cloud CLI
+RUN curl -fsSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz | tar -C /opt -xz && \
+    /opt/google-cloud-sdk/install.sh --quiet --path-update=false && \
+    ln -s /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud && \
+    ln -s /opt/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil && \
+    ln -s /opt/google-cloud-sdk/bin/bq /usr/local/bin/bq
+
+# AWS CLI v2
+RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && \
+    unzip -q /tmp/awscliv2.zip -d /tmp && \
+    /tmp/aws/install && \
+    rm -rf /tmp/awscliv2.zip /tmp/aws
+
+# Azure CLI
+RUN curl -fsSL https://aka.ms/InstallAzureCLIDeb | bash
+
 # Set up Go environment for picoclaw user
 ENV GOPATH=/home/picoclaw/go
 # pip installs to PVC so packages survive pod restarts
