@@ -81,9 +81,7 @@ func newDeployCommand() *cobra.Command {
 		linearAPIKey   string
 		linearTeamID   string
 		slackBotToken  string
-		caldavURL      string
-		caldavUsername  string
-		caldavPassword string
+		caldavAccounts []string
 	)
 
 	cmd := &cobra.Command{
@@ -146,9 +144,7 @@ func newDeployCommand() *cobra.Command {
 				LinearAPIKey:   envDefault(linearAPIKey, "LINEAR_API_KEY"),
 				LinearTeamID:   envDefault(linearTeamID, "LINEAR_TEAM_ID"),
 				SlackBotToken:  envDefault(slackBotToken, "SLACK_BOT_TOKEN"),
-				CalDAVURL:      envDefault(caldavURL, "CALDAV_URL"),
-				CalDAVUsername:  envDefault(caldavUsername, "CALDAV_USERNAME"),
-				CalDAVPassword: envDefault(caldavPassword, "CALDAV_PASSWORD"),
+				CalDAVAccounts: parseCalDAVAccounts(caldavAccounts),
 			}
 
 			if err := k8sClient.DeployInstance(context.Background(), opts); err != nil {
@@ -177,10 +173,43 @@ func newDeployCommand() *cobra.Command {
 	cmd.Flags().StringVar(&linearTeamID, "linear-team-id", "", "Linear team UUID (or LINEAR_TEAM_ID env)")
 	cmd.Flags().StringVar(&slackBotToken, "slack-bot-token", "", "Slack bot token (or SLACK_BOT_TOKEN env)")
 
-	// CalDAV calendar integration (optional)
-	cmd.Flags().StringVar(&caldavURL, "caldav-url", "", "CalDAV server URL (or CALDAV_URL env)")
-	cmd.Flags().StringVar(&caldavUsername, "caldav-username", "", "CalDAV username (or CALDAV_USERNAME env)")
-	cmd.Flags().StringVar(&caldavPassword, "caldav-password", "", "CalDAV password (or CALDAV_PASSWORD env)")
+	// CalDAV calendar integration (optional, repeatable: name=url,user,pass)
+	cmd.Flags().StringArrayVar(&caldavAccounts, "caldav", nil, "CalDAV account (name=url,username,password — repeatable for multiple calendars)")
 
 	return cmd
+}
+
+// parseCalDAVAccounts parses --caldav flag values in the format "name=url,username,password".
+// Also checks CALDAV_URL/CALDAV_USERNAME/CALDAV_PASSWORD env vars as single-account fallback.
+func parseCalDAVAccounts(raw []string) []k8s.CalDAVAccount {
+	var accounts []k8s.CalDAVAccount
+	for _, entry := range raw {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := parts[0]
+		fields := strings.SplitN(parts[1], ",", 3)
+		if len(fields) != 3 {
+			continue
+		}
+		accounts = append(accounts, k8s.CalDAVAccount{
+			Name:     name,
+			URL:      fields[0],
+			Username: fields[1],
+			Password: fields[2],
+		})
+	}
+	// Env var fallback for single account.
+	if len(accounts) == 0 {
+		url := os.Getenv("CALDAV_URL")
+		if url != "" {
+			accounts = append(accounts, k8s.CalDAVAccount{
+				URL:      url,
+				Username: os.Getenv("CALDAV_USERNAME"),
+				Password: os.Getenv("CALDAV_PASSWORD"),
+			})
+		}
+	}
+	return accounts
 }

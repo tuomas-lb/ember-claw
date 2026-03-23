@@ -31,6 +31,14 @@ const (
 	RegistrySecretName = "eclaw-registry"
 )
 
+// CalDAVAccount represents a single CalDAV calendar account for MCP integration.
+type CalDAVAccount struct {
+	Name     string // Short name (used as MCP server name suffix, e.g. "calendar-tuomas")
+	URL      string // CalDAV server URL
+	Username string // CalDAV username
+	Password string // CalDAV password
+}
+
 // DeployOptions contains all configuration for deploying a PicoClaw instance.
 type DeployOptions struct {
 	Name          string            // Instance name (resources are prefixed with picoclaw-{name})
@@ -48,9 +56,7 @@ type DeployOptions struct {
 	LinearAPIKey   string            // Linear API key (optional)
 	LinearTeamID   string            // Linear team UUID (optional)
 	SlackBotToken  string            // Slack bot token (optional)
-	CalDAVURL      string            // CalDAV server URL (optional)
-	CalDAVUsername string            // CalDAV username (optional)
-	CalDAVPassword string            // CalDAV password (optional)
+	CalDAVAccounts []CalDAVAccount   // CalDAV calendar accounts (optional)
 	MCPServers     map[string]mcpServerConfig // Additional MCP servers to include
 	Identity       string            // Custom IDENTITY.md content (optional, uses default if empty)
 }
@@ -186,17 +192,21 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 			},
 		},
 	}
-	// Add CalDAV calendar server if configured.
-	if opts.CalDAVURL != "" {
-		servers["calendar"] = mcpServerConfig{
+	// Add CalDAV calendar servers for each configured account.
+	for _, acct := range opts.CalDAVAccounts {
+		serverName := "calendar"
+		if acct.Name != "" {
+			serverName = "calendar-" + acct.Name
+		}
+		servers[serverName] = mcpServerConfig{
 			Enabled: true,
 			Type:    "stdio",
 			Command: "caldav-mcp",
 			Args:    []string{},
 			Env: map[string]string{
-				"CALDAV_BASE_URL": opts.CalDAVURL,
-				"CALDAV_USERNAME": opts.CalDAVUsername,
-				"CALDAV_PASSWORD": opts.CalDAVPassword,
+				"CALDAV_BASE_URL": acct.URL,
+				"CALDAV_USERNAME": acct.Username,
+				"CALDAV_PASSWORD": acct.Password,
 			},
 		}
 	}
