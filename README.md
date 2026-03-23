@@ -246,6 +246,7 @@ Create a named PicoClaw instance on the cluster. Creates the namespace automatic
 | `--linear-api-key` | from env | Linear API key (or `LINEAR_API_KEY` env) |
 | `--linear-team-id` | from env | Linear team UUID (or `LINEAR_TEAM_ID` env) |
 | `--slack-bot-token` | from env | Slack bot token (or `SLACK_BOT_TOKEN` env) |
+| `--caldav` | none | CalDAV account (`name=url,user,pass`, repeatable) |
 
 Instance names must be valid DNS subdomain components: lowercase alphanumeric and hyphens, 3-63 chars.
 
@@ -318,6 +319,33 @@ eclaw deploy my-agent --provider gemini --model gemini-2.5-flash \
 ```
 
 Or set `SLACK_BOT_TOKEN` in `.env`.
+
+### CalDAV Calendars
+
+Provides calendar event access via [caldav-mcp](https://github.com/dominik1001/caldav-mcp). Supports multiple calendar accounts per instance — each gets its own MCP server.
+
+```bash
+# Multiple calendars via flags (repeatable)
+eclaw deploy my-agent --provider gemini --model gemini-2.5-flash \
+  --caldav "tuomas=https://caldav.example.com/tuomas/,tuomas,secret123" \
+  --caldav "johanna=https://caldav.example.com/johanna/,johanna,secret456"
+```
+
+Or for a single calendar via `.env`:
+
+```bash
+CALDAV_URL=https://caldav.example.com/tuomas/
+CALDAV_USERNAME=tuomas
+CALDAV_PASSWORD=secret123
+```
+
+Each `--caldav` flag takes the format `name=url,username,password`. The name is used as an MCP server suffix (e.g., `calendar-tuomas`), giving PicoClaw tools like `mcp_calendar-tuomas_list_events`.
+
+### Backlog.md Task Management
+
+[Backlog.md](https://github.com/nickarella/backlog.md) is pre-installed in the container and automatically configured as an MCP server. PicoClaw can create, list, update, and manage tasks via `mcp_backlog_task_*` tools.
+
+No configuration needed — works out of the box with the workspace directory.
 
 ### Adding Custom Integrations
 

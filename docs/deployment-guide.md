@@ -56,6 +56,11 @@ LINEAR_API_KEY=lin_api_...
 LINEAR_TEAM_ID=<team-uuid>
 SLACK_BOT_TOKEN=xoxb-...
 
+# Optional: CalDAV calendar (single account; use --caldav flag for multiple)
+CALDAV_URL=https://caldav.example.com/user/
+CALDAV_USERNAME=user
+CALDAV_PASSWORD=secret
+
 # Optional: kubeconfig for CI
 # KUBECONFIG_BASE64=<base64-encoded>
 ```
