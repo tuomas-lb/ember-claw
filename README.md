@@ -341,6 +341,27 @@ CALDAV_PASSWORD=secret123
 
 Each `--caldav` flag takes the format `name=url,username,password`. The name is used as an MCP server suffix (e.g., `calendar-tuomas`), giving PicoClaw tools like `mcp_calendar-tuomas_list_events`.
 
+### Gmail (IMAP)
+
+Self-hosted Gmail access via IMAP — no third-party OAuth required. Supports multiple mailboxes per instance. Read-only: list folders, search, read emails, count unread.
+
+```bash
+# Add a mailbox to a running instance
+eclaw set-gmail watcher-1 add work \
+  --host imap.gmail.com --port 993 \
+  --user you@gmail.com --password "app-password-here"
+
+# Add another mailbox
+eclaw set-gmail watcher-1 add personal \
+  --host imap.gmail.com --port 993 \
+  --user personal@gmail.com --password "app-password-here"
+
+# Remove a mailbox
+eclaw set-gmail watcher-1 remove work
+```
+
+Requires a [Gmail App Password](https://myaccount.google.com/apppasswords) (not your regular password). All mailboxes are accessible via `mcp_gmail_*` tools (list_mailboxes, list_folders, search, read, list_recent, count_unread).
+
 ### Backlog.md Task Management
 
 [Backlog.md](https://github.com/nickarella/backlog.md) is pre-installed in the container and automatically configured as an MCP server. PicoClaw can create, list, update, and manage tasks via `mcp_backlog_task_*` tools.

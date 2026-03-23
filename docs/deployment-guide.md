@@ -225,6 +225,27 @@ These can be set via `set-secret` using the `PICOCLAW_` env var prefix:
 | `PICOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE` | `true` | Allow reading files outside workspace |
 | `PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS` | `true` | Block dangerous shell commands |
 
+## Configuring Gmail
+
+Add IMAP mailboxes to a running instance using `eclaw set-gmail`. Requires a [Gmail App Password](https://myaccount.google.com/apppasswords).
+
+```bash
+# Add a mailbox
+eclaw set-gmail my-agent add work \
+  --host imap.gmail.com --port 993 \
+  --user you@gmail.com --password "xxxx-xxxx-xxxx-xxxx"
+
+# Add another mailbox
+eclaw set-gmail my-agent add personal \
+  --host imap.gmail.com --port 993 \
+  --user personal@gmail.com --password "xxxx-xxxx-xxxx-xxxx"
+
+# Remove a mailbox
+eclaw set-gmail my-agent remove work
+```
+
+The Gmail MCP server provides 6 tools: `list_mailboxes`, `list_folders`, `search`, `read`, `list_recent`, `count_unread`. All are read-only — the server cannot send or delete emails.
+
 ## Managing Instances
 
 ### List All

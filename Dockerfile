@@ -61,8 +61,12 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 # Pre-install commonly needed Python packages
 RUN pip install --no-cache-dir --break-system-packages requests beautifulsoup4 pyyaml
 
-# Install Backlog.md task manager and CalDAV MCP server (used by PicoClaw as MCP tools)
+# Install MCP tools (used by PicoClaw as MCP servers)
 RUN npm install -g backlog.md caldav-mcp
+
+# Install Gmail MCP server from local source
+COPY tools/gmail-mcp /tmp/gmail-mcp
+RUN cd /tmp/gmail-mcp && npm install && npm run build && npm install -g . && rm -rf /tmp/gmail-mcp
 
 # Install cloud CLI tools
 # Google Cloud CLI

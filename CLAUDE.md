@@ -75,6 +75,7 @@ Generated config.json sets container-optimized defaults:
 |------------|---------|---------|--------|
 | `backlog` | backlog.md | Task management | Always enabled, uses workspace dir |
 | `calendar-*` | caldav-mcp | CalDAV calendars | Via `--caldav` flag or `CALDAV_*` env vars |
+| `gmail` | gmail-mcp (local) | IMAP email access | Via `eclaw set-gmail` command |
 
 ### Build & Deploy
 
