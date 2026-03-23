@@ -67,20 +67,23 @@ func detectDockerRegistry() string {
 
 func newDeployCommand() *cobra.Command {
 	var (
-		provider      string
-		apiKey        string
-		model         string
-		image         string
-		cpuRequest    string
-		cpuLimit      string
-		memoryRequest string
-		memoryLimit   string
-		storageSize   string
-		storageClass  string
-		customEnv     map[string]string
-		linearAPIKey  string
-		linearTeamID  string
-		slackBotToken string
+		provider       string
+		apiKey         string
+		model          string
+		image          string
+		cpuRequest     string
+		cpuLimit       string
+		memoryRequest  string
+		memoryLimit    string
+		storageSize    string
+		storageClass   string
+		customEnv      map[string]string
+		linearAPIKey   string
+		linearTeamID   string
+		slackBotToken  string
+		caldavURL      string
+		caldavUsername  string
+		caldavPassword string
 	)
 
 	cmd := &cobra.Command{
@@ -128,21 +131,24 @@ func newDeployCommand() *cobra.Command {
 			}
 
 			opts := k8s.DeployOptions{
-				Name:          name,
-				Provider:      provider,
-				APIKey:        resolvedKey,
-				Model:         model,
-				Image:         image,
-				CPURequest:    cpuRequest,
-				CPULimit:      cpuLimit,
-				MemoryRequest: memoryRequest,
-				MemoryLimit:   memoryLimit,
-				StorageSize:   storageSize,
-				StorageClass:  storageClass,
-				CustomEnv:     customEnv,
-				LinearAPIKey:  envDefault(linearAPIKey, "LINEAR_API_KEY"),
-				LinearTeamID:  envDefault(linearTeamID, "LINEAR_TEAM_ID"),
-				SlackBotToken: envDefault(slackBotToken, "SLACK_BOT_TOKEN"),
+				Name:           name,
+				Provider:       provider,
+				APIKey:         resolvedKey,
+				Model:          model,
+				Image:          image,
+				CPURequest:     cpuRequest,
+				CPULimit:       cpuLimit,
+				MemoryRequest:  memoryRequest,
+				MemoryLimit:    memoryLimit,
+				StorageSize:    storageSize,
+				StorageClass:   storageClass,
+				CustomEnv:      customEnv,
+				LinearAPIKey:   envDefault(linearAPIKey, "LINEAR_API_KEY"),
+				LinearTeamID:   envDefault(linearTeamID, "LINEAR_TEAM_ID"),
+				SlackBotToken:  envDefault(slackBotToken, "SLACK_BOT_TOKEN"),
+				CalDAVURL:      envDefault(caldavURL, "CALDAV_URL"),
+				CalDAVUsername:  envDefault(caldavUsername, "CALDAV_USERNAME"),
+				CalDAVPassword: envDefault(caldavPassword, "CALDAV_PASSWORD"),
 			}
 
 			if err := k8sClient.DeployInstance(context.Background(), opts); err != nil {
@@ -170,6 +176,11 @@ func newDeployCommand() *cobra.Command {
 	cmd.Flags().StringVar(&linearAPIKey, "linear-api-key", "", "Linear API key (or LINEAR_API_KEY env)")
 	cmd.Flags().StringVar(&linearTeamID, "linear-team-id", "", "Linear team UUID (or LINEAR_TEAM_ID env)")
 	cmd.Flags().StringVar(&slackBotToken, "slack-bot-token", "", "Slack bot token (or SLACK_BOT_TOKEN env)")
+
+	// CalDAV calendar integration (optional)
+	cmd.Flags().StringVar(&caldavURL, "caldav-url", "", "CalDAV server URL (or CALDAV_URL env)")
+	cmd.Flags().StringVar(&caldavUsername, "caldav-username", "", "CalDAV username (or CALDAV_USERNAME env)")
+	cmd.Flags().StringVar(&caldavPassword, "caldav-password", "", "CalDAV password (or CALDAV_PASSWORD env)")
 
 	return cmd
 }

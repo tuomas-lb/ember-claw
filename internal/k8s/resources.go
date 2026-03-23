@@ -45,11 +45,14 @@ type DeployOptions struct {
 	StorageSize   string            // PVC size (default: "1Gi")
 	StorageClass  string            // Optional storage class name
 	CustomEnv     map[string]string // Additional env vars
-	LinearAPIKey  string            // Linear API key (optional)
-	LinearTeamID  string            // Linear team UUID (optional)
-	SlackBotToken string            // Slack bot token (optional)
-	MCPServers    map[string]mcpServerConfig // Additional MCP servers to include
-	Identity      string            // Custom IDENTITY.md content (optional, uses default if empty)
+	LinearAPIKey   string            // Linear API key (optional)
+	LinearTeamID   string            // Linear team UUID (optional)
+	SlackBotToken  string            // Slack bot token (optional)
+	CalDAVURL      string            // CalDAV server URL (optional)
+	CalDAVUsername string            // CalDAV username (optional)
+	CalDAVPassword string            // CalDAV password (optional)
+	MCPServers     map[string]mcpServerConfig // Additional MCP servers to include
+	Identity       string            // Custom IDENTITY.md content (optional, uses default if empty)
 }
 
 // picoClawConfig is the subset of PicoClaw's config.json we generate for deployment.
@@ -183,6 +186,21 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 			},
 		},
 	}
+	// Add CalDAV calendar server if configured.
+	if opts.CalDAVURL != "" {
+		servers["calendar"] = mcpServerConfig{
+			Enabled: true,
+			Type:    "stdio",
+			Command: "caldav-mcp",
+			Args:    []string{},
+			Env: map[string]string{
+				"CALDAV_BASE_URL": opts.CalDAVURL,
+				"CALDAV_USERNAME": opts.CalDAVUsername,
+				"CALDAV_PASSWORD": opts.CalDAVPassword,
+			},
+		}
+	}
+
 	// Merge any additional MCP servers from deploy options.
 	for name, srv := range opts.MCPServers {
 		servers[name] = srv
