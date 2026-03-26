@@ -232,14 +232,17 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 
 // defaultIdentity returns the default IDENTITY.md content for a PicoClaw instance.
 // Loaded by PicoClaw at startup — defines name, capabilities, and environment.
-func defaultIdentity(instanceName string) string {
+func defaultIdentity(instanceName, modelName string) string {
 	return fmt.Sprintf(`# Identity
 
 ## Name
-%s
+Chisel (instance: %s)
+
+## Model
+You are powered by %s. When asked what model you are, state this exactly — do not guess or hallucinate a different model name.
 
 ## Description
-AI assistant deployed via EmberClaw on Kubernetes.
+You are Chisel, an AI assistant deployed via EmberClaw on Kubernetes. Always identify yourself as Chisel when asked who you are.
 
 ## Environment
 - Alpine Linux container with persistent storage (PVC)
@@ -261,7 +264,7 @@ AI assistant deployed via EmberClaw on Kubernetes.
 - Cannot access resources outside this container/cluster without explicit network tools
 - No GUI — all interaction is text-based
 - Memory resets between sessions unless saved to memory/MEMORY.md or backlog
-`, instanceName)
+`, instanceName, modelName)
 }
 
 // defaultAgentsInstructions returns the default AGENTS.md content.
@@ -442,7 +445,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 	bootstrapCMName := baseName + "-bootstrap"
 	identityContent := opts.Identity
 	if identityContent == "" {
-		identityContent = defaultIdentity(opts.Name)
+		identityContent = defaultIdentity(opts.Name, opts.Model)
 	}
 	bootstrapCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
