@@ -28,11 +28,13 @@ func NewRootCommand() *cobra.Command {
 
 			// Apply env var defaults for flags not explicitly set on the command line.
 			applyEnvDefault(cmd, "namespace", "ECLAW_NAMESPACE")
+			// Support both ECLAW_KUBECONFIG and standard KUBECONFIG env var.
 			applyEnvDefault(cmd, "kubeconfig", "ECLAW_KUBECONFIG")
+			applyEnvDefault(cmd, "kubeconfig", "KUBECONFIG")
 
 			// Skip client creation for commands that don't need cluster access.
 			switch cmd.Name() {
-			case "help", "completion", "models":
+			case "help", "completion", "models", "kubeconfig":
 				return nil
 			}
 			var err error
@@ -61,6 +63,7 @@ func NewRootCommand() *cobra.Command {
 		newSetTelegramCommand(),
 		newSetCalDAVCommand(),
 		newSetGmailCommand(),
+		newKubeconfigCommand(),
 	)
 
 	return root
