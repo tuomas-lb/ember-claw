@@ -33,8 +33,16 @@ func ListModels(ctx context.Context, provider, apiKey string) ([]Model, error) {
 		return listOpenAIModels(ctx, "https://api.deepseek.com/v1", apiKey)
 	case "openrouter":
 		return listOpenAIModels(ctx, "https://openrouter.ai/api/v1", apiKey)
+	case "mistral":
+		return listMistralModels(ctx, apiKey)
+	case "xai":
+		return listOpenAIModels(ctx, "https://api.x.ai/v1", apiKey)
+	case "kimi", "moonshot":
+		return listOpenAIModels(ctx, "https://api.moonshot.cn/v1", apiKey)
+	case "copilot":
+		return listOpenAIModels(ctx, "https://api.githubcopilot.com", apiKey)
 	default:
-		return nil, fmt.Errorf("model listing not supported for provider %q (supported: openai, gemini, anthropic, groq, deepseek, openrouter)", provider)
+		return nil, fmt.Errorf("model listing not supported for provider %q (supported: openai, gemini, anthropic, groq, deepseek, openrouter, mistral, xai, kimi, copilot)", provider)
 	}
 }
 
@@ -149,6 +157,29 @@ func listAnthropicModels(ctx context.Context, apiKey string) ([]Model, error) {
 		{ID: "claude-sonnet-4-5-20250514", DisplayName: "Claude Sonnet 4.5"},
 		{ID: "claude-haiku-3-5-20241022", DisplayName: "Claude Haiku 3.5"},
 	}, nil
+}
+
+// listMistralModels queries both the standard Mistral API and the Codestral endpoint.
+func listMistralModels(ctx context.Context, apiKey string) ([]Model, error) {
+	models, err := listOpenAIModels(ctx, "https://api.mistral.ai/v1", apiKey)
+	if err != nil {
+		return nil, err
+	}
+	// Also try Codestral endpoint (may use same or different key)
+	codestralModels, err := listOpenAIModels(ctx, "https://codestral.mistral.ai/v1", apiKey)
+	if err == nil {
+		seen := make(map[string]bool)
+		for _, m := range models {
+			seen[m.ID] = true
+		}
+		for _, m := range codestralModels {
+			if !seen[m.ID] {
+				models = append(models, m)
+			}
+		}
+	}
+	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
+	return models, nil
 }
 
 // Test hooks for URL injection.

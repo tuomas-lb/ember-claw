@@ -176,6 +176,14 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 		entry.APIBase = "https://api.deepseek.com/v1"
 	case "openrouter":
 		entry.APIBase = "https://openrouter.ai/api/v1"
+	case "mistral":
+		entry.APIBase = "https://api.mistral.ai/v1"
+	case "xai":
+		entry.APIBase = "https://api.x.ai/v1"
+	case "kimi", "moonshot":
+		entry.APIBase = "https://api.moonshot.cn/v1"
+	case "copilot":
+		entry.APIBase = "https://api.githubcopilot.com"
 	}
 
 	cfg.ModelList = []picoClawModelEntry{entry}
