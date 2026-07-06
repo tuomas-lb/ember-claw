@@ -61,6 +61,10 @@ CALDAV_URL=https://caldav.example.com/user/
 CALDAV_USERNAME=user
 CALDAV_PASSWORD=secret
 
+# Optional: GitHub token for coding-agent instances (injected as GITHUB_TOKEN + GH_TOKEN;
+# the container's git credential helper and gh CLI pick it up automatically)
+GITHUB_TOKEN=github_pat_...
+
 # Optional: kubeconfig for CI
 # KUBECONFIG_BASE64=<base64-encoded>
 ```
@@ -143,6 +147,21 @@ make deploy-picoclaw \
 ```
 
 When `.env` contains `GEMINI_API_KEY`, the `--api-key` flag is optional.
+
+### Coding Agent / Fleet Deployment
+
+A full-featured coding agent with GitHub access, browser automation, fleet control, and shared storage:
+
+```bash
+eclaw deploy overseer \
+  --provider openrouter --model deepseek/deepseek-v4-pro \
+  --github-token github_pat_xxx \
+  --playwright \
+  --fleet-admin \
+  --shared-pvc fleet-shared --shared-pvc-size 10Gi
+```
+
+The instance can then run `eclaw` commands itself (in-cluster ServiceAccount) to deploy and manage worker instances, which can mount the same `--shared-pvc fleet-shared` for file exchange.
 
 ### Re-deploying
 

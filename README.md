@@ -247,6 +247,12 @@ Create a named PicoClaw instance on the cluster. Creates the namespace automatic
 | `--linear-team-id` | from env | Linear team UUID (or `LINEAR_TEAM_ID` env) |
 | `--slack-bot-token` | from env | Slack bot token (or `SLACK_BOT_TOKEN` env) |
 | `--caldav` | none | CalDAV account (`name=url,user,pass`, repeatable) |
+| `--github-token` | from env | GitHub token injected as `GITHUB_TOKEN` + `GH_TOKEN` (or `GITHUB_TOKEN` env) |
+| `--shared-pvc` | none | Name of a shared PVC mounted at `/home/picoclaw/shared` (created if missing) |
+| `--shared-pvc-size` | `10Gi` | Size of the shared PVC when created |
+| `--fleet-admin` | `false` | Grant namespace-scoped RBAC so the instance can manage sibling instances via in-container `eclaw` |
+| `--playwright` | `false` | Enable the Playwright browser MCP server (headless chromium) |
+| `--identity` | none | Path to a custom `IDENTITY.md` file for the instance |
 
 Instance names must be valid DNS subdomain components: lowercase alphanumeric and hyphens, 3-63 chars.
 
@@ -367,6 +373,36 @@ Requires a [Gmail App Password](https://myaccount.google.com/apppasswords) (not 
 [Backlog.md](https://github.com/nickarella/backlog.md) is pre-installed in the container and automatically configured as an MCP server. PicoClaw can create, list, update, and manage tasks via `mcp_backlog_task_*` tools.
 
 No configuration needed — works out of the box with the workspace directory.
+
+### GitHub (coding agent)
+
+Pass `--github-token` (or set `GITHUB_TOKEN` in `.env`) to give the instance authenticated GitHub access. The token is stored in the instance Secret and injected as both `GITHUB_TOKEN` and `GH_TOKEN`. The container image ships with the `gh` CLI and a system-level git credential helper, so `git clone`/`git push` against `https://github.com/...` and all `gh` commands authenticate automatically.
+
+```bash
+eclaw deploy coder --provider openrouter --model deepseek/deepseek-v4-pro \
+  --github-token github_pat_xxx
+```
+
+### Playwright Browser
+
+Pass `--playwright` to enable browser automation. The image bundles `@playwright/mcp` and a headless chromium (with system dependencies); the MCP server runs with `--headless --browser chromium --no-sandbox` (the sandbox is unavailable for the non-root container user). PicoClaw gets `mcp_playwright_*` tools: navigate, click, fill, screenshot, etc.
+
+### Fleet Control
+
+Pass `--fleet-admin` to let an instance manage its sibling instances. This creates a ServiceAccount, Role, and RoleBinding (named `picoclaw-<name>-fleet`, namespace-scoped) covering every resource type eclaw touches, and mounts it into the pod. The `eclaw` binary is included in the container image and automatically uses the in-cluster ServiceAccount when no kubeconfig is present; `ECLAW_NAMESPACE` and `ECLAW_IMAGE` are injected so `eclaw deploy`/`list`/`logs`/`chat`/`delete` work out of the box inside the pod.
+
+```bash
+eclaw deploy overseer --provider openrouter --model deepseek/deepseek-v4-pro --fleet-admin
+# then, from inside the instance (e.g. via chat): "run: eclaw deploy worker-1 ..."
+```
+
+RBAC is cleaned up by `eclaw delete <name>`.
+
+### Shared Storage
+
+Pass `--shared-pvc <name>` to mount a fleet-wide PVC at `/home/picoclaw/shared` (`SHARED_DIR` env). The PVC is created on first use (`--shared-pvc-size`, default 10Gi) and is deliberately **not** deleted with any instance — it belongs to the fleet. Multiple instances can pass the same PVC name to share files.
+
+> **Note:** on clusters whose storage class only supports `ReadWriteOnce` (e.g. `local-path`), all pods sharing the PVC are co-scheduled onto the node holding the volume — this works transparently, but limits fleet placement to one node.
 
 ### Adding Custom Integrations
 

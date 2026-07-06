@@ -82,6 +82,12 @@ func newDeployCommand() *cobra.Command {
 		linearTeamID   string
 		slackBotToken  string
 		caldavAccounts []string
+		githubToken    string
+		sharedPVC      string
+		sharedPVCSize  string
+		fleetAdmin     bool
+		playwright     bool
+		identityFile   string
 	)
 
 	cmd := &cobra.Command{
@@ -128,6 +134,15 @@ func newDeployCommand() *cobra.Command {
 				return err
 			}
 
+			identityContent := ""
+			if identityFile != "" {
+				data, err := os.ReadFile(identityFile)
+				if err != nil {
+					return fmt.Errorf("read identity file: %w", err)
+				}
+				identityContent = string(data)
+			}
+
 			opts := k8s.DeployOptions{
 				Name:           name,
 				Provider:       provider,
@@ -145,6 +160,12 @@ func newDeployCommand() *cobra.Command {
 				LinearTeamID:   envDefault(linearTeamID, "LINEAR_TEAM_ID"),
 				SlackBotToken:  envDefault(slackBotToken, "SLACK_BOT_TOKEN"),
 				CalDAVAccounts: parseCalDAVAccounts(caldavAccounts),
+				GitHubToken:    envDefault(githubToken, "GITHUB_TOKEN"),
+				SharedPVC:      sharedPVC,
+				SharedPVCSize:  sharedPVCSize,
+				FleetAdmin:     fleetAdmin,
+				Playwright:     playwright,
+				Identity:       identityContent,
 			}
 
 			if err := k8sClient.DeployInstance(context.Background(), opts); err != nil {
@@ -175,6 +196,14 @@ func newDeployCommand() *cobra.Command {
 
 	// CalDAV calendar integration (optional, repeatable: name=url,user,pass)
 	cmd.Flags().StringArrayVar(&caldavAccounts, "caldav", nil, "CalDAV account (name=url,username,password — repeatable for multiple calendars)")
+
+	// Coding agent / fleet features
+	cmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub token injected as GITHUB_TOKEN + GH_TOKEN (or GITHUB_TOKEN env)")
+	cmd.Flags().StringVar(&sharedPVC, "shared-pvc", "", "Name of a shared PVC mounted at /home/picoclaw/shared (created if missing; survives instance deletion)")
+	cmd.Flags().StringVar(&sharedPVCSize, "shared-pvc-size", k8s.DefaultSharedPVCSize, "Size of the shared PVC when created")
+	cmd.Flags().BoolVar(&fleetAdmin, "fleet-admin", false, "Grant the instance namespace-scoped RBAC to manage sibling instances with the in-container eclaw CLI")
+	cmd.Flags().BoolVar(&playwright, "playwright", false, "Enable the Playwright browser MCP server (headless chromium)")
+	cmd.Flags().StringVar(&identityFile, "identity", "", "Path to a custom IDENTITY.md file for the instance")
 
 	return cmd
 }

@@ -160,7 +160,20 @@ Namespace: picoclaw
 +-- Secret: picoclaw-research-config (config.json + API keys + tokens)
 +-- ConfigMap: picoclaw-research-env (custom env vars)
 +-- PVC: picoclaw-research-data (1Gi default)
+|
++-- [--fleet-admin] ServiceAccount/Role/RoleBinding: picoclaw-research-fleet
++-- [--shared-pvc]  PVC: <shared-name> (fleet-wide, mounted at /home/picoclaw/shared)
 ```
+
+## Fleet Control (--fleet-admin)
+
+When deployed with `--fleet-admin`, the instance pod runs under ServiceAccount `picoclaw-<name>-fleet`, bound to a namespace-scoped Role covering deployments, services, secrets, configmaps, PVCs, serviceaccounts, pods (+ `pods/log`, `pods/portforward`), ingresses, and roles/rolebindings — everything the eclaw CLI touches. The `eclaw` binary ships in the container image; client-go falls back to the in-cluster ServiceAccount config when no kubeconfig exists, so `eclaw list/deploy/logs/chat/delete` work directly inside the pod. `ECLAW_NAMESPACE` and `ECLAW_IMAGE` are injected so the namespace and container image resolve without a `.env`.
+
+Kubernetes RBAC forbids privilege escalation, so a fleet-admin instance can grant `--fleet-admin` to instances it deploys (same Role), but can never grant permissions beyond its own.
+
+## Shared Storage (--shared-pvc)
+
+A shared PVC is created on demand (default 10Gi) and mounted at `/home/picoclaw/shared` in every instance deployed with the same `--shared-pvc <name>`. It carries the `managed-by=eclaw` + `component=shared-storage` labels but **no instance label**, so `eclaw delete` never removes it. With `ReadWriteOnce` storage classes (e.g. `local-path`), Kubernetes co-schedules all sharing pods onto the volume's node via volume node affinity.
 
 ## Integration Tools
 

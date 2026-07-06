@@ -586,3 +586,118 @@ func TestGetInstanceLogs_NoPod(t *testing.T) {
 func int32Ptr(i int32) *int32 {
 	return &i
 }
+
+// TestDeployInstance_FleetAdmin verifies ServiceAccount, Role, and RoleBinding
+// creation plus pod wiring when FleetAdmin is enabled.
+func TestDeployInstance_FleetAdmin(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.FleetAdmin = true
+
+	err := client.DeployInstance(ctx, opts)
+	require.NoError(t, err)
+
+	fakeCS := client.cs.(*fake.Clientset)
+
+	sa, err := fakeCS.CoreV1().ServiceAccounts(testNamespace).Get(ctx, "picoclaw-research-fleet", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, ManagedByValue, sa.Labels[LabelManagedBy])
+
+	role, err := fakeCS.RbacV1().Roles(testNamespace).Get(ctx, "picoclaw-research-fleet", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.NotEmpty(t, role.Rules)
+
+	rb, err := fakeCS.RbacV1().RoleBindings(testNamespace).Get(ctx, "picoclaw-research-fleet", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "picoclaw-research-fleet", rb.RoleRef.Name)
+
+	deploy, err := fakeCS.AppsV1().Deployments(testNamespace).Get(ctx, "picoclaw-research", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "picoclaw-research-fleet", deploy.Spec.Template.Spec.ServiceAccountName)
+
+	// ECLAW_NAMESPACE and ECLAW_IMAGE env vars are injected for in-container eclaw.
+	envNames := map[string]string{}
+	for _, e := range deploy.Spec.Template.Spec.Containers[0].Env {
+		envNames[e.Name] = e.Value
+	}
+	assert.Equal(t, testNamespace, envNames["ECLAW_NAMESPACE"])
+	assert.Equal(t, opts.Image, envNames["ECLAW_IMAGE"])
+
+	// Delete cleans up RBAC resources.
+	require.NoError(t, client.DeleteInstance(ctx, "research"))
+	_, err = fakeCS.CoreV1().ServiceAccounts(testNamespace).Get(ctx, "picoclaw-research-fleet", metav1.GetOptions{})
+	assert.Error(t, err, "serviceaccount should be deleted with the instance")
+}
+
+// TestDeployInstance_SharedPVC verifies shared PVC creation, mounting, and that
+// instance deletion does NOT remove the shared PVC.
+func TestDeployInstance_SharedPVC(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.SharedPVC = "fleet-shared"
+	opts.SharedPVCSize = "5Gi"
+
+	err := client.DeployInstance(ctx, opts)
+	require.NoError(t, err)
+
+	fakeCS := client.cs.(*fake.Clientset)
+
+	pvc, err := fakeCS.CoreV1().PersistentVolumeClaims(testNamespace).Get(ctx, "fleet-shared", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "5Gi", pvc.Spec.Resources.Requests.Storage().String())
+	assert.Equal(t, "shared-storage", pvc.Labels[LabelComponent])
+	assert.Empty(t, pvc.Labels[LabelInstance], "shared PVC must not carry instance label")
+
+	deploy, err := fakeCS.AppsV1().Deployments(testNamespace).Get(ctx, "picoclaw-research", metav1.GetOptions{})
+	require.NoError(t, err)
+	var mounted bool
+	for _, m := range deploy.Spec.Template.Spec.Containers[0].VolumeMounts {
+		if m.MountPath == SharedMountPath {
+			mounted = true
+		}
+	}
+	assert.True(t, mounted, "shared PVC should be mounted at %s", SharedMountPath)
+
+	// Instance deletion must leave the shared PVC in place.
+	require.NoError(t, client.DeleteInstance(ctx, "research"))
+	_, err = fakeCS.CoreV1().PersistentVolumeClaims(testNamespace).Get(ctx, "fleet-shared", metav1.GetOptions{})
+	assert.NoError(t, err, "shared PVC must survive instance deletion")
+}
+
+// TestDeployInstance_Playwright verifies the playwright MCP server entry in config.json.
+func TestDeployInstance_Playwright(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.Playwright = true
+
+	err := client.DeployInstance(ctx, opts)
+	require.NoError(t, err)
+
+	fakeCS := client.cs.(*fake.Clientset)
+	secret, err := fakeCS.CoreV1().Secrets(testNamespace).Get(ctx, "picoclaw-research-config", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	configJSON := secret.StringData["config.json"]
+	assert.True(t, strings.Contains(configJSON, `"mcp-server-playwright"`), "config.json should reference the playwright MCP server")
+	assert.True(t, strings.Contains(configJSON, `--no-sandbox`), "playwright MCP should run with --no-sandbox")
+}
+
+// TestDeployInstance_GitHubToken verifies GITHUB_TOKEN and GH_TOKEN injection.
+func TestDeployInstance_GitHubToken(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.GitHubToken = "github_pat_test"
+
+	err := client.DeployInstance(ctx, opts)
+	require.NoError(t, err)
+
+	fakeCS := client.cs.(*fake.Clientset)
+	secret, err := fakeCS.CoreV1().Secrets(testNamespace).Get(ctx, "picoclaw-research-config", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "github_pat_test", secret.StringData["GITHUB_TOKEN"])
+	assert.Equal(t, "github_pat_test", secret.StringData["GH_TOKEN"])
+}

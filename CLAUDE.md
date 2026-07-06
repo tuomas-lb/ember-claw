@@ -54,9 +54,11 @@ Never leave anything undocumented. If you add a flag, document it. If you add an
 ### Container Image
 
 - Base: `debian:bookworm-slim` (glibc needed for bun/backlog.md)
-- Pre-installed: curl, jq, git, python3, nodejs, go, bun, gcloud, aws, az
+- Pre-installed: curl, jq, git, gh, python3, nodejs, go, bun, gcloud, aws, az
 - Pre-installed Python packages: requests, beautifulsoup4, pyyaml
-- Pre-installed npm packages: backlog.md, caldav-mcp
+- Pre-installed npm packages: backlog.md, caldav-mcp, @playwright/mcp (+ headless chromium at `/opt/playwright-browsers`)
+- Bundled binaries: `sidecar` (entrypoint) and `eclaw` (fleet control, uses in-cluster ServiceAccount)
+- System git credential helper authenticates `https://github.com` from `GITHUB_TOKEN` env
 - `PIP_USER=1` + `PYTHONUSERBASE` on PVC for persistent pip packages
 - `PIP_BREAK_SYSTEM_PACKAGES=1` for system-level pip access
 
@@ -76,6 +78,13 @@ Generated config.json sets container-optimized defaults:
 | `backlog` | backlog.md | Task management | Always enabled, uses workspace dir |
 | `calendar-*` | caldav-mcp | CalDAV calendars | Via `--caldav` flag or `CALDAV_*` env vars |
 | `gmail` | gmail-mcp (local) | IMAP email access | Via `eclaw set-gmail` command |
+| `playwright` | @playwright/mcp | Headless browser automation | Via `--playwright` deploy flag |
+
+### Fleet & Storage Features
+
+- `--fleet-admin` creates ServiceAccount/Role/RoleBinding `picoclaw-<name>-fleet` (namespace-scoped) and injects `ECLAW_NAMESPACE`/`ECLAW_IMAGE` so the in-container `eclaw` binary can manage sibling instances; cleaned up on delete
+- `--shared-pvc <name>` mounts a fleet-shared PVC at `/home/picoclaw/shared` (`SHARED_DIR` env); created on demand, never deleted with an instance
+- `--github-token` injects `GITHUB_TOKEN` + `GH_TOKEN` into the instance Secret
 
 ### Build & Deploy
 
