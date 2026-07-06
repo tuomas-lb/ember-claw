@@ -681,7 +681,7 @@ func TestDeployInstance_Playwright(t *testing.T) {
 	require.NoError(t, err)
 
 	configJSON := secret.StringData["config.json"]
-	assert.True(t, strings.Contains(configJSON, `"mcp-server-playwright"`), "config.json should reference the playwright MCP server")
+	assert.True(t, strings.Contains(configJSON, `"playwright-mcp"`), "config.json should reference the playwright MCP server")
 	assert.True(t, strings.Contains(configJSON, `--no-sandbox`), "playwright MCP should run with --no-sandbox")
 }
 

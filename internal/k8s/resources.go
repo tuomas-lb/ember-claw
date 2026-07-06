@@ -235,7 +235,7 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 		servers["playwright"] = mcpServerConfig{
 			Enabled: true,
 			Type:    "stdio",
-			Command: "mcp-server-playwright",
+			Command: "playwright-mcp",
 			Args:    []string{"--headless", "--browser", "chromium", "--no-sandbox"},
 		}
 	}
