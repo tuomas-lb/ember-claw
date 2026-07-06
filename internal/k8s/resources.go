@@ -745,6 +745,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 									echo "Persistent memory across sessions." >> /workspace/workspace/memory/MEMORY.md
 									echo "Installed memory/MEMORY.md"
 								fi
+								chown -R 1000:1000 /workspace/workspace
 							`},
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "data", MountPath: "/workspace"},
