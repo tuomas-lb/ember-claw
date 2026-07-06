@@ -1479,10 +1479,15 @@ func (c *Client) ExposeInstance(ctx context.Context, opts ExposeOptions) (*Expos
 		pathType := networkingv1.PathTypePrefix
 		ingress := &networkingv1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        baseName,
-				Namespace:   c.namespace,
-				Labels:      instanceLabels,
-				Annotations: map[string]string{},
+				Name:      baseName,
+				Namespace: c.namespace,
+				Labels:    instanceLabels,
+				Annotations: map[string]string{
+					// Chat requests block while the agent runs tool loops —
+					// extend nginx proxy timeouts well past the 60s default.
+					"nginx.ingress.kubernetes.io/proxy-read-timeout": "900",
+					"nginx.ingress.kubernetes.io/proxy-send-timeout": "900",
+				},
 			},
 			Spec: networkingv1.IngressSpec{
 				IngressClassName: &opts.Class,

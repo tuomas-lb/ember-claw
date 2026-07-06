@@ -165,6 +165,12 @@ Namespace: picoclaw
 +-- [--shared-pvc]  PVC: <shared-name> (fleet-wide, mounted at /home/picoclaw/shared)
 ```
 
+## HTTP Server (port 8080)
+
+The sidecar runs a single HTTP server on 8080 serving K8s probes (`/health`, `/ready`), the web control UI (`/`), and the authenticated control API (`/api/status`, `/api/chat`). `/api/chat` calls `AgentLoop.ProcessDirect` with the same session-key semantics as the gRPC API (`web:<uuid>` prefix, client-provided `session_id` honored). Auth is a bearer token from the `CONTROL_TOKEN` env var, compared in constant time; with no token configured the API returns 503 (fail closed). The server's write timeout is 15 minutes because chat requests block while the agent runs tool loops; `eclaw expose` matches this with 900s nginx proxy-read/send-timeout annotations.
+
+The channel manager's own webhook HTTP server is intentionally not started — it would collide with this server on port 8080. Telegram uses long polling and needs no webhook endpoint; webhook-based channels are not supported in container mode.
+
 ## Fleet Control (--fleet-admin)
 
 When deployed with `--fleet-admin`, the instance pod runs under ServiceAccount `picoclaw-<name>-fleet`, bound to a namespace-scoped Role covering deployments, services, secrets, configmaps, PVCs, serviceaccounts, pods (+ `pods/log`, `pods/portforward`), ingresses, and roles/rolebindings — everything the eclaw CLI touches. The `eclaw` binary ships in the container image; client-go falls back to the in-cluster ServiceAccount config when no kubeconfig exists, so `eclaw list/deploy/logs/chat/delete` work directly inside the pod. `ECLAW_NAMESPACE` and `ECLAW_IMAGE` are injected so the namespace and container image resolve without a `.env`.

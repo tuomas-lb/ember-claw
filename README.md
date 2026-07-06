@@ -404,6 +404,29 @@ Pass `--shared-pvc <name>` to mount a fleet-wide PVC at `/home/picoclaw/shared` 
 
 > **Note:** on clusters whose storage class only supports `ReadWriteOnce` (e.g. `local-path`), all pods sharing the PVC are co-scheduled onto the node holding the volume — this works transparently, but limits fleet placement to one node.
 
+### Web Control Interface
+
+Every instance serves a web control UI on its HTTP port (8080): a status view plus a chat interface backed by the same agent as gRPC and Telegram. Expose it with:
+
+```bash
+# Generate and set an access token (the API is disabled until this is set)
+eclaw set-secret my-agent CONTROL_TOKEN "$(openssl rand -hex 24)"
+
+# Expose via ingress with TLS
+eclaw expose my-agent --type ingress --host my-agent.example.com --tls --issuer letsencrypt-prod
+```
+
+Routes:
+
+| Path | Auth | Purpose |
+|------|------|---------|
+| `/` | none | Single-page control UI (enter the token in the page) |
+| `/health`, `/ready` | none | K8s probes |
+| `/api/status` | Bearer token | Instance status JSON (model, provider, uptime, ready) |
+| `/api/chat` | Bearer token | `POST {"message": "...", "session_id": "..."}` → agent response |
+
+The `/api/*` endpoints require `Authorization: Bearer <CONTROL_TOKEN>` and are **disabled (503) until `CONTROL_TOKEN` is set** — fail closed, since the agent has shell access. `eclaw expose` sets 900s nginx proxy timeouts so long tool-running chat requests don't get cut off. `eclaw unexpose <name>` removes the ingress and external service.
+
 ### Adding Custom Integrations
 
 See [docs/tool-development.md](docs/tool-development.md) for how to add new tools.

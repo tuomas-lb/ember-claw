@@ -80,6 +80,13 @@ Generated config.json sets container-optimized defaults:
 | `gmail` | gmail-mcp (local) | IMAP email access | Via `eclaw set-gmail` command |
 | `playwright` | @playwright/mcp | Headless browser automation | Via `--playwright` deploy flag |
 
+### Web Control Interface
+
+- Sidecar serves a control UI at `/` on port 8080 (status + chat) alongside `/health`/`/ready`
+- `/api/status` + `/api/chat` require `Authorization: Bearer $CONTROL_TOKEN`; disabled (503) when the env var is unset
+- Set the token with `eclaw set-secret <name> CONTROL_TOKEN <token>`; expose with `eclaw expose <name> --type ingress --host ... --tls`
+- Channel-manager webhook server is not started (port 8080 collision; Telegram long-polls)
+
 ### Fleet & Storage Features
 
 - `--fleet-admin` creates ServiceAccount/Role/RoleBinding `picoclaw-<name>-fleet` (namespace-scoped) and injects `ECLAW_NAMESPACE`/`ECLAW_IMAGE` so the in-container `eclaw` binary can manage sibling instances; cleaned up on delete

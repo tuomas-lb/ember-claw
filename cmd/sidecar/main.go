@@ -20,11 +20,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/sipeed/picoclaw/pkg/agent"
@@ -92,26 +94,45 @@ func main() {
 		}
 	}
 
-	// --- Health server (Pattern 4) ---
-	// PicoClaw's health.Server exposes /health and /ready for K8s probes.
-	healthSrv := health.NewServer("0.0.0.0", 8080)
+	// --- Shared service wrapper (used by both gRPC and the web control UI) ---
+	svc := server.New(agentLoop)
+	svc.SetModel(cfg.Agents.Defaults.ModelName)
+	svc.SetProvider(modelID)
+	svc.SetReady(true)
 
-	// If channels need webhooks, set up HTTP server on the health server.
-	if channelMgr != nil {
-		addr := fmt.Sprintf("%s:%d", cfg.Gateway.Host, cfg.Gateway.Port)
-		if addr == ":0" || addr == ":" {
-			addr = "0.0.0.0:8080"
-		}
-		channelMgr.SetupHTTPServer(addr, healthSrv)
+	// --- HTTP server: health probes + web control UI (port 8080) ---
+	// A single mux serves /health + /ready (K8s probes), the control UI at /,
+	// and the authenticated /api/* endpoints. The API is disabled unless the
+	// CONTROL_TOKEN env var is set (fail closed — the port may be exposed
+	// publicly via `eclaw expose`).
+	//
+	// Note: the channel manager's own webhook HTTP server is intentionally not
+	// used — webhook-based channels would collide with this server on port
+	// 8080. Telegram uses long polling and needs no webhook endpoint.
+	healthSrv := health.NewServer("0.0.0.0", 8080)
+	healthSrv.SetReady(true)
+
+	mux := http.NewServeMux()
+	healthSrv.RegisterOnMux(mux)
+	controlToken := os.Getenv("CONTROL_TOKEN")
+	svc.RegisterControlUI(mux, controlToken)
+	if controlToken == "" {
+		log.Warn().Msg("CONTROL_TOKEN not set — web control API disabled (UI will show 503)")
 	}
 
-	healthSrv.SetReady(true)
+	httpSrv := &http.Server{
+		Addr:    "0.0.0.0:8080",
+		Handler: mux,
+		// Long write timeout: /api/chat blocks while the agent runs tool loops.
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 15 * time.Minute,
+	}
 	go func() {
-		if err := healthSrv.Start(); err != nil {
-			log.Error().Err(err).Msg("health server stopped")
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("http server stopped")
 		}
 	}()
-	log.Info().Int("port", 8080).Msg("health server started")
+	log.Info().Int("port", 8080).Msg("http server started (health + control UI)")
 
 	// --- gRPC server (Pattern 6) ---
 	lis, err := net.Listen("tcp", ":50051")
@@ -120,12 +141,6 @@ func main() {
 	}
 
 	grpcSrv := grpc.NewServer()
-
-	// Wire the PicoClaw service
-	svc := server.New(agentLoop)
-	svc.SetModel(cfg.Agents.Defaults.ModelName)
-	svc.SetProvider(modelID)
-	svc.SetReady(true)
 	emberclaw.RegisterPicoClawServiceServer(grpcSrv, svc)
 
 	// Wire the standard gRPC health service (K8S-04: K8s 1.24+ gRPC probes)
@@ -149,6 +164,9 @@ func main() {
 	if channelMgr != nil {
 		channelMgr.StopAll(ctx)
 	}
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_ = httpSrv.Shutdown(shutdownCtx)
+	shutdownCancel()
 	grpcSrv.GracefulStop()
 	agentLoop.Stop()
 	log.Info().Msg("shutdown complete")
