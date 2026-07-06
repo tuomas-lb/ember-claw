@@ -86,7 +86,7 @@ RUN npm install -g backlog.md caldav-mcp
 # (sandbox disabled via --no-sandbox in the MCP server args at runtime).
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN npm install -g @playwright/mcp && \
-    PW_VERSION=$(node -p "require('/usr/lib/node_modules/@playwright/mcp/node_modules/playwright-core/package.json').version") && \
+    PW_VERSION=$(node -p "require('$(npm root -g)/@playwright/mcp/node_modules/playwright-core/package.json').version") && \
     npm install -g playwright@"$PW_VERSION" && \
     playwright install --with-deps chromium && \
     chmod -R a+rX /opt/playwright-browsers
