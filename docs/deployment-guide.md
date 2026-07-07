@@ -46,10 +46,12 @@ kubectl --kubeconfig /path/to/kubeconfig get namespaces
 Create a `.env` file in the project root with your API keys:
 
 ```bash
-# AI provider API keys (eclaw auto-resolves per provider)
+# AI provider API keys (eclaw auto-resolves <PROVIDER>_API_KEY per provider)
 GEMINI_API_KEY=AIza...
 ANTHROPIC_API_KEY=sk-ant-api03-...
 OPENAI_API_KEY=sk-...
+OPENROUTER_API_KEY=sk-or-v1-...
+BYTEPLUS_API_KEY=<ModelArk API key>   # BytePlus ModelArk (OpenAI-compatible)
 
 # Optional: integration credentials
 LINEAR_API_KEY=lin_api_...
@@ -118,7 +120,7 @@ make deploy-picoclaw EMBER_VERSION=0.1
 
 The wizard prompts for:
 - **Instance name** — lowercase, alphanumeric + hyphens (e.g., `research`, `test-bot`)
-- **AI provider** — `anthropic`, `openai`, `gemini`, `groq`, `deepseek`, `openrouter`, `copilot`
+- **AI provider** — `anthropic`, `openai`, `gemini`, `groq`, `deepseek`, `openrouter`, `mistral`, `xai`, `kimi`, `copilot`, `byteplus`
 - **API key** — entered silently (not echoed). If `.env` has the provider key, it's used automatically.
 - **Model name** — e.g., `gemini-2.5-flash`, `claude-sonnet-4-20250514`, `gpt-4o`
 
@@ -147,6 +149,21 @@ make deploy-picoclaw \
 ```
 
 When `.env` contains `GEMINI_API_KEY`, the `--api-key` flag is optional.
+
+### BytePlus ModelArk
+
+[BytePlus ModelArk](https://docs.byteplus.com/en/docs/ModelArk/1330626) is an OpenAI-compatible provider. `--model` takes a ModelArk model ID or an inference endpoint ID (`ep-...`):
+
+```bash
+# Standard model invocation (key from BYTEPLUS_API_KEY)
+eclaw deploy my-agent --provider byteplus --model kimi-k2-250905
+
+# Coding Plan subscription — use the coding endpoint so requests draw on the plan quota
+eclaw deploy my-agent --provider byteplus --model <model-or-ep-id> \
+  --api-base https://ark.ap-southeast.bytepluses.com/api/coding/v3
+```
+
+The default endpoint is `https://ark.ap-southeast.bytepluses.com/api/v3`. `--api-base` (or `ECLAW_API_BASE`) overrides it for any OpenAI-compatible endpoint — a different region, the Coding Plan, or a self-hosted gateway.
 
 ### Coding Agent / Fleet Deployment
 

@@ -49,6 +49,7 @@ type DeployOptions struct {
 	Name           string                     // Instance name (resources are prefixed with picoclaw-{name})
 	Provider       string                     // AI provider (anthropic, openai, etc.)
 	APIKey         string                     // Provider API key
+	APIBase        string                     // Optional override of the provider's default API base URL (e.g. a region or plan-specific endpoint)
 	Model          string                     // Model name
 	Image          string                     // Container image (resolved from IMAGE_REGISTRY or ECLAW_IMAGE)
 	CPURequest     string                     // e.g., "100m"
@@ -146,6 +147,68 @@ type picoClawModelEntry struct {
 	APIBase   string `json:"api_base,omitempty"`
 }
 
+// picoClawProtocols is the set of protocol prefixes PicoClaw's provider factory
+// (CreateProviderFromConfig) accepts. A model_list entry whose "<protocol>/..."
+// prefix is not in this set makes the sidecar fail to construct a provider and
+// crash-loop at startup, so we validate against it before deploying.
+var picoClawProtocols = map[string]bool{
+	"openai": true, "litellm": true, "openrouter": true, "groq": true,
+	"zhipu": true, "gemini": true, "nvidia": true, "ollama": true,
+	"moonshot": true, "shengsuanyun": true, "deepseek": true, "cerebras": true,
+	"vivgrid": true, "volcengine": true, "vllm": true, "qwen": true,
+	"mistral": true, "avian": true, "minimax": true, "longcat": true,
+	"modelscope": true, "anthropic": true, "anthropic-messages": true,
+	"antigravity": true, "claude-cli": true, "codex-cli": true,
+	"github-copilot": true, "copilot": true,
+}
+
+// SupportedProviders lists the AI providers eclaw maps to a PicoClaw protocol
+// with a default API base. Any OpenAI-compatible endpoint also works via
+// --api-base with an arbitrary provider name.
+var SupportedProviders = []string{
+	"anthropic", "openai", "gemini", "groq", "deepseek", "openrouter",
+	"mistral", "xai", "kimi", "copilot", "byteplus",
+}
+
+// providerProtocol maps an eclaw provider name to the PicoClaw protocol prefix
+// used in the model_list "model" field. Most provider names are PicoClaw
+// protocols as-is; a few map to a different (OpenAI-compatible) one. An
+// unrecognized provider combined with an explicit --api-base is treated as a
+// generic OpenAI-compatible endpoint.
+func providerProtocol(provider, apiBase string) string {
+	switch provider {
+	case "byteplus":
+		// BytePlus ModelArk == Volcengine Ark (OpenAI-compatible).
+		return "volcengine"
+	case "kimi":
+		// Kimi/Moonshot's PicoClaw protocol is "moonshot".
+		return "moonshot"
+	case "xai":
+		// xAI (grok) is OpenAI-compatible; PicoClaw has no "xai" protocol.
+		return "openai"
+	case "google":
+		// PicoClaw's Gemini protocol is "gemini".
+		return "gemini"
+	}
+	if !picoClawProtocols[provider] && apiBase != "" {
+		return "openai"
+	}
+	return provider
+}
+
+// validateProvider returns an error if the provider would not resolve to a
+// protocol PicoClaw understands (which would otherwise crash-loop the pod).
+func validateProvider(provider, apiBase string) error {
+	if picoClawProtocols[providerProtocol(provider, apiBase)] {
+		return nil
+	}
+	return fmt.Errorf(
+		"unsupported provider %q: no PicoClaw protocol mapping (supported: %s); "+
+			"for any other OpenAI-compatible endpoint pass --api-base explicitly",
+		provider, strings.Join(SupportedProviders, ", "),
+	)
+}
+
 // buildPicoClawConfig generates a config.json for a PicoClaw instance.
 // The API key is embedded directly in the model_list entry.
 // This config.json is stored in a K8s Secret (not ConfigMap) to protect the key.
@@ -153,8 +216,9 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 	provider := strings.ToLower(opts.Provider)
 	modelID := opts.Model
 
-	// Build the protocol/model-id reference for model_list
-	modelRef := provider + "/" + modelID
+	// The model_list "model" field is "<protocol>/<model-id>", where the
+	// protocol prefix selects PicoClaw's provider adapter.
+	modelRef := providerProtocol(provider, opts.APIBase) + "/" + modelID
 
 	cfg := picoClawConfig{}
 	cfg.Agents.Defaults.ModelName = modelID
@@ -197,6 +261,17 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 		entry.APIBase = "https://api.moonshot.cn/v1"
 	case "copilot":
 		entry.APIBase = "https://api.githubcopilot.com"
+	case "byteplus":
+		// BytePlus ModelArk OpenAI-compatible endpoint (standard model
+		// invocation). Coding Plan users should pass --api-base
+		// https://ark.ap-southeast.bytepluses.com/api/coding/v3 instead.
+		entry.APIBase = "https://ark.ap-southeast.bytepluses.com/api/v3"
+	}
+
+	// An explicit --api-base overrides the provider default (region- or
+	// plan-specific endpoints, self-hosted OpenAI-compatible gateways, etc.).
+	if opts.APIBase != "" {
+		entry.APIBase = opts.APIBase
 	}
 
 	cfg.ModelList = []picoClawModelEntry{entry}
@@ -442,6 +517,11 @@ func resourceName(name string) string {
 func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 	if opts.Image == "" {
 		return fmt.Errorf("image is required: set ECLAW_IMAGE or IMAGE_REGISTRY in .env, or use --image flag")
+	}
+	// Fail fast on a provider we can't map to a PicoClaw protocol — before any
+	// cluster mutation — rather than deploying a pod that crash-loops.
+	if err := validateProvider(strings.ToLower(opts.Provider), opts.APIBase); err != nil {
+		return err
 	}
 	if opts.StorageSize == "" {
 		opts.StorageSize = DefaultStorageSize

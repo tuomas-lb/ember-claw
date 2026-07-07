@@ -22,7 +22,7 @@ func newModelsCommand() *cobra.Command {
 		Long: `List available models from an AI provider. This also validates
 your API key — if the key is invalid, you'll get an authentication error.
 
-Supported providers: openai, gemini, anthropic, groq, deepseek, openrouter`,
+Supported providers: openai, gemini, anthropic, groq, deepseek, openrouter, mistral, xai, kimi, copilot, byteplus`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolvedKey, err := resolveAPIKey(apiKey, provider)
 			if err != nil {
@@ -56,7 +56,7 @@ Supported providers: openai, gemini, anthropic, groq, deepseek, openrouter`,
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (openai, gemini, anthropic, groq, deepseek, openrouter)")
+	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (openai, gemini, anthropic, groq, deepseek, openrouter, mistral, xai, kimi, copilot, byteplus)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key (or set <PROVIDER>_API_KEY env var)")
 
 	_ = cmd.MarkFlagRequired("provider")

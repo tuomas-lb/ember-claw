@@ -84,6 +84,10 @@ Generated config.json sets container-optimized defaults:
 - `enable_deny_patterns: false` (safety guard off in container)
 - `allow_remote: true`
 
+### Providers
+
+`--provider` supports: anthropic, openai, gemini, groq, deepseek, openrouter, mistral, xai, kimi, copilot, byteplus. `providerProtocol` (internal/k8s/resources.go) maps each to a PicoClaw protocol prefix; the key resolves from `<PROVIDER>_API_KEY`. Names that aren't PicoClaw protocols are remapped so the pod doesn't crash-loop on `unknown protocol`: `byteplus`→`volcengine` (base `https://ark.ap-southeast.bytepluses.com/api/v3`), `kimi`→`moonshot`, `xai`→`openai` (base `api.x.ai/v1`), `google`→`gemini`. `--api-base` / `ECLAW_API_BASE` overrides the endpoint for any provider (BytePlus Coding Plan `/api/coding/v3`, other regions, self-hosted gateways); an unrecognized provider + `--api-base` is treated as generic OpenAI-compatible. `DeployInstance` calls `validateProvider` up front and errors before any cluster mutation on an unmappable provider (no `--api-base`).
+
 ### MCP Integrations (built into container)
 
 | MCP Server | Package | Purpose | Config |
