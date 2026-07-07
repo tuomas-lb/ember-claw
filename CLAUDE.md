@@ -29,6 +29,7 @@ EmberClaw (`eclaw`) is a Go CLI tool for deploying and managing PicoClaw AI assi
 | `docs/` | Deployment guide, architecture, tool development, **fleet guide** |
 | `dashboard/` | Vendored fleet dashboard: Go (chi + k8s + gRPC) backend serving an embedded React/Vite SPA; own nested go.mod. Built by `images/dashboard/Dockerfile`. |
 | `internal/mtls/` | CA + client-cert (PKCS#12) generation for mTLS-protected interfaces |
+| `internal/stream/` | Provider wrapper + context sink that surfaces the agent's reasoning/tool-call steps live over the gRPC `Chat` stream (dashboard chat "processing" view) |
 | `assets/brand/` | Logo and brand assets |
 
 ## Fleet / dashboard / mTLS

@@ -43,6 +43,7 @@ import (
 
 	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
 	"github.com/tuomas-lb/ember-claw/internal/server"
+	"github.com/tuomas-lb/ember-claw/internal/stream"
 	lineartools "github.com/tuomas-lb/ember-claw/internal/tools/linear"
 	slacktools "github.com/tuomas-lb/ember-claw/internal/tools/slack"
 )
@@ -67,8 +68,10 @@ func main() {
 	log.Info().Str("model", cfg.Agents.Defaults.ModelName).Msg("provider initialized")
 
 	// --- AgentLoop creation (Pattern 1) ---
+	// Wrap the provider so the gRPC Chat stream can surface the agent's
+	// reasoning and tool-call intents live (see internal/stream).
 	msgBus := bus.NewMessageBus()
-	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+	agentLoop := agent.NewAgentLoop(cfg, msgBus, stream.WrapProvider(provider))
 	defer agentLoop.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())

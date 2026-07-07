@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	pb "github.com/tuomas-lb/ember-claw/dashboard/gen/emberclaw/v1"
 	"github.com/tuomas-lb/ember-claw/dashboard/internal/config"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -83,8 +84,13 @@ func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleChat handles GET /api/instances/{name}/chat as a WebSocket.
-// Uses the simpler Query RPC (one message → one response) per user message,
-// which matches how eclaw chat works in single-shot mode.
+//
+// It opens one bidirectional gRPC Chat stream for the connection's lifetime and
+// sends each user message on it. The sidecar replies with a series of Done=false
+// frames carrying intermediate processing steps (reasoning, tool-call intents,
+// JSON-encoded in the frame text) followed by one Done=true frame with the final
+// answer. Steps are forwarded to the browser as {step:{...}} and are NOT
+// persisted; only the final answer is stored.
 func (h *Handler) HandleChat(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
@@ -96,6 +102,12 @@ func (h *Handler) HandleChat(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	ctx := r.Context()
+
+	grpcStream, err := h.grpc.ChatStream(ctx, name)
+	if err != nil {
+		sendChatError(conn, "chat stream error: "+err.Error())
+		return
+	}
 
 	for {
 		_, msg, err := conn.ReadMessage()
@@ -117,28 +129,43 @@ func (h *Handler) HandleChat(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Use Query RPC — one request, one response (like eclaw chat -m)
-		resp, err := h.grpc.Query(ctx, name, cm.Message, cm.SessionKey)
-		if err != nil {
-			sendChatError(conn, "query error: "+err.Error())
-			continue
-		}
-
-		// Persist the agent response.
-		if h.store != nil && resp.GetError() == "" && resp.GetText() != "" {
-			if _, err := h.store.AddMessage(ctx, name, cm.SessionKey, "agent", resp.GetText()); err != nil {
-				log.Printf("persist agent message for %s: %v", name, err)
-			}
-		}
-
-		cr := config.ChatResponse{
-			Text:  resp.GetText(),
-			Done:  true,
-			Error: resp.GetError(),
-		}
-		b, _ := json.Marshal(cr)
-		if writeErr := conn.WriteMessage(websocket.TextMessage, b); writeErr != nil {
+		if err := grpcStream.Send(&pb.ChatRequest{Message: cm.Message, SessionKey: cm.SessionKey}); err != nil {
+			sendChatError(conn, "send error: "+err.Error())
 			return
+		}
+
+		// Read frames until the final (Done) frame for this turn.
+		for {
+			frame, err := grpcStream.Recv()
+			if err != nil {
+				sendChatError(conn, "chat recv error: "+err.Error())
+				return
+			}
+
+			// Intermediate step frame: forward as {step:{...}}, do not persist.
+			if !frame.GetDone() && frame.GetError() == "" && frame.GetText() != "" {
+				var step config.ChatStep
+				if json.Unmarshal([]byte(frame.GetText()), &step) == nil && step.Kind != "" {
+					b, _ := json.Marshal(config.ChatResponse{Step: &step})
+					if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
+						return
+					}
+				}
+				continue
+			}
+
+			// Final frame: persist the answer and forward it.
+			if h.store != nil && frame.GetError() == "" && frame.GetText() != "" {
+				if _, err := h.store.AddMessage(ctx, name, cm.SessionKey, "agent", frame.GetText()); err != nil {
+					log.Printf("persist agent message for %s: %v", name, err)
+				}
+			}
+			cr := config.ChatResponse{Text: frame.GetText(), Done: true, Error: frame.GetError()}
+			b, _ := json.Marshal(cr)
+			if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
+				return
+			}
+			break
 		}
 	}
 }

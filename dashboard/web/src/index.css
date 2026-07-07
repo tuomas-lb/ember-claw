@@ -582,6 +582,60 @@ tbody td {
   color: var(--text-dim);
 }
 
+/* Live processing steps (reasoning / tool calls) shown while the agent works. */
+.chat-steps {
+  align-self: flex-start;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.chat-step {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.chat-step-tool {
+  border-left-color: var(--accent, #6ea8fe);
+}
+
+.chat-step-icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.chat-step-tool .chat-step-tool,
+.chat-step .chat-step-tool {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chat-step-args {
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--text-faint);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+}
+
+.chat-step-reasoning {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-style: italic;
+}
+
 .chat-input-row {
   display: flex;
   gap: 8px;

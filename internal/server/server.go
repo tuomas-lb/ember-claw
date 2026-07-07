@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
+	"github.com/tuomas-lb/ember-claw/internal/stream"
 )
 
 // Server implements the PicoClawServiceServer gRPC interface.
@@ -70,14 +72,71 @@ func (s *Server) Chat(stream emberclaw.PicoClawService_ChatServer) error {
 			sessionKey = req.SessionKey
 		}
 
-		// Always use stream.Context() so cancellation propagates (Pitfall 4).
-		response, err := s.agent.ProcessDirect(stream.Context(), req.Message, sessionKey)
-		if err != nil {
-			return status.Errorf(codes.Internal, "agent error: %v", err)
-		}
-
-		if err := stream.Send(&emberclaw.ChatResponse{Text: response, Done: true}); err != nil {
+		if err := s.processStreaming(stream, req.Message, sessionKey); err != nil {
 			return err
+		}
+	}
+}
+
+// processStreaming runs one chat turn, streaming intermediate processing steps
+// (reasoning, tool-call intents) as ChatResponse frames with Done=false, then a
+// final frame with Done=true carrying the answer (or Error).
+//
+// Steps are emitted by the stream-wrapped provider (see internal/stream) via a
+// sink installed on the request context. The agent runs in a goroutine so we can
+// forward buffered steps as they arrive; a full buffer drops steps rather than
+// blocking the agent (they are best-effort UI hints, not the answer).
+func (s *Server) processStreaming(srv emberclaw.PicoClawService_ChatServer, message, sessionKey string) error {
+	steps := make(chan stream.Step, 64)
+	// Always use stream.Context() so cancellation propagates (Pitfall 4).
+	ctx := stream.WithSink(srv.Context(), func(st stream.Step) {
+		select {
+		case steps <- st:
+		default: // buffer full — drop this step
+		}
+	})
+
+	type result struct {
+		text string
+		err  error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		text, err := s.agent.ProcessDirect(ctx, message, sessionKey)
+		resCh <- result{text: text, err: err}
+	}()
+
+	sendStep := func(st stream.Step) error {
+		b, err := json.Marshal(st)
+		if err != nil {
+			return nil // skip unencodable step
+		}
+		return srv.Send(&emberclaw.ChatResponse{Text: string(b), Done: false})
+	}
+
+	for {
+		select {
+		case st := <-steps:
+			if err := sendStep(st); err != nil {
+				return err
+			}
+		case res := <-resCh:
+			// Flush any steps buffered before the result landed.
+			for {
+				select {
+				case st := <-steps:
+					if err := sendStep(st); err != nil {
+						return err
+					}
+					continue
+				default:
+				}
+				break
+			}
+			if res.err != nil {
+				return status.Errorf(codes.Internal, "agent error: %v", res.err)
+			}
+			return srv.Send(&emberclaw.ChatResponse{Text: res.text, Done: true})
 		}
 	}
 }

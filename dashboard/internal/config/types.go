@@ -52,6 +52,17 @@ type ChatResponse struct {
 	Text  string `json:"text"`
 	Done  bool   `json:"done"`
 	Error string `json:"error,omitempty"`
+	// Step, when set, is an intermediate processing event (reasoning or a
+	// tool-call intent) surfaced live while the agent works — not part of the
+	// final answer and not persisted.
+	Step *ChatStep `json:"step,omitempty"`
+}
+
+// ChatStep mirrors the sidecar's stream.Step envelope carried in Done=false frames.
+type ChatStep struct {
+	Kind    string `json:"kind"`              // "reasoning" | "tool"
+	Tool    string `json:"tool,omitempty"`    // tool name (Kind == "tool")
+	Content string `json:"content,omitempty"` // reasoning text or tool arguments
 }
 
 // Provider info

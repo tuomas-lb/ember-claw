@@ -32,10 +32,18 @@ export interface DeployRequest {
   storage_size?: string;
 }
 
+export interface ChatStep {
+  kind: 'reasoning' | 'tool';
+  tool?: string;
+  content?: string;
+}
+
 export interface ChatMessage {
   text: string;
   done: boolean;
   error?: string;
+  // Present on intermediate frames while the agent is still working.
+  step?: ChatStep;
 }
 
 export interface Provider {

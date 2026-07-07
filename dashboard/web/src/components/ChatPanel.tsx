@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, KeyboardEvent } from 'react';
-import { connectChat, fetchMessages, ChatMessage } from '../api/client';
+import { connectChat, fetchMessages, ChatMessage, ChatStep } from '../api/client';
 
 interface Props {
   instanceName: string;
@@ -34,6 +34,7 @@ export default function ChatPanel({ instanceName }: Props) {
   const [input, setInput] = useState('');
   const [wsState, setWsState] = useState<WsState>('connecting');
   const [isTyping, setIsTyping] = useState(false);
+  const [steps, setSteps] = useState<ChatStep[]>([]);
   const [sessionKey] = useState<string>(() => stableSessionKey(instanceName));
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -75,12 +76,19 @@ export default function ChatPanel({ instanceName }: Props) {
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data as string) as ChatMessage;
+        // Intermediate processing step (reasoning / tool call) — show live.
+        if (msg.step) {
+          setSteps(prev => [...prev, msg.step as ChatStep]);
+          return;
+        }
         if (msg.error) {
           appendAgentChunk(`[error: ${msg.error}]`, true);
           setIsTyping(false);
+          setSteps([]);
           return;
         }
         appendAgentChunk(msg.text, msg.done);
+        if (msg.done) setSteps([]);
       } catch {
         // raw text fallback
         appendAgentChunk(e.data as string, false);
@@ -88,30 +96,45 @@ export default function ChatPanel({ instanceName }: Props) {
     };
   }, [instanceName, appendAgentChunk]);
 
-  // Load persisted history for this instance's session on mount, then connect.
-  useEffect(() => {
-    unmounted.current = false;
-    let cancelled = false;
+  // Load persisted history for this instance's session. Replaces the message
+  // list with the server's copy, but never while a turn is streaming in this
+  // view (that would clobber the in-flight response).
+  const loadHistory = useCallback(() => {
+    if (isTyping) return;
     fetchMessages(instanceName, sessionKey)
       .then(stored => {
-        if (cancelled) return;
+        if (unmounted.current || isTyping) return;
         setMessages(stored.map(m => ({
           id: ++_msgId,
           role: m.role,
           text: m.content,
         })));
       })
-      .catch(() => { /* history is best-effort; start empty */ })
+      .catch(() => { /* history is best-effort */ })
       .finally(() => {
-        if (!cancelled) setHistoryLoaded(true);
+        if (!unmounted.current) setHistoryLoaded(true);
       });
+  }, [instanceName, sessionKey, isTyping]);
+
+  // Load history on mount, then connect. Also refetch whenever the window
+  // regains focus — so a response that completed server-side while the user
+  // was on another tab reappears on return (the live stream only reaches the
+  // tab that was open when it was generated).
+  useEffect(() => {
+    unmounted.current = false;
+    loadHistory();
     connect();
+    const onFocus = () => loadHistory();
+    window.addEventListener('focus', onFocus);
     return () => {
-      cancelled = true;
       unmounted.current = true;
+      window.removeEventListener('focus', onFocus);
       wsRef.current?.close();
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     };
+    // loadHistory intentionally omitted: it depends on isTyping, which would
+    // otherwise tear down and reopen the WebSocket on every send.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connect, instanceName, sessionKey]);
 
   // Auto-scroll on new messages
@@ -131,6 +154,7 @@ export default function ChatPanel({ instanceName }: Props) {
     ]);
     setInput('');
     setIsTyping(true);
+    setSteps([]);
 
     const payload = { message: text, session_key: sessionKey };
     wsRef.current?.send(JSON.stringify(payload));
@@ -151,6 +175,11 @@ export default function ChatPanel({ instanceName }: Props) {
   return (
     <div className="chat-container">
       <div className="chat-messages" ref={scrollRef}>
+        {messages.length === 0 && !historyLoaded && (
+          <div style={{ color: 'var(--text-faint)', fontSize: 12, textAlign: 'center', padding: 24 }}>
+            loading conversation…
+          </div>
+        )}
         {messages.length === 0 && historyLoaded && (
           <div style={{ color: 'var(--text-faint)', fontSize: 12, textAlign: 'center', padding: 24 }}>
             Send a message to start a conversation
@@ -172,8 +201,28 @@ export default function ChatPanel({ instanceName }: Props) {
             </div>
           </div>
         ))}
+        {steps.length > 0 && (
+          <div className="chat-steps">
+            {steps.map((s, i) => (
+              <div key={i} className={`chat-step chat-step-${s.kind}`}>
+                {s.kind === 'tool' ? (
+                  <>
+                    <span className="chat-step-icon">⚙</span>
+                    <span className="chat-step-tool">{s.tool}</span>
+                    {s.content && <span className="chat-step-args">{s.content}</span>}
+                  </>
+                ) : (
+                  <>
+                    <span className="chat-step-icon">✳</span>
+                    <span className="chat-step-reasoning">{s.content}</span>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         {isTyping && !messages.some(m => m.role === 'agent' && m.streaming) && (
-          <div className="chat-typing">typing...</div>
+          <div className="chat-typing">{steps.length > 0 ? 'working...' : 'typing...'}</div>
         )}
       </div>
 
