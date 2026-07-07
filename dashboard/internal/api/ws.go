@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -85,12 +86,16 @@ func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 
 // HandleChat handles GET /api/instances/{name}/chat as a WebSocket.
 //
-// It opens one bidirectional gRPC Chat stream for the connection's lifetime and
-// sends each user message on it. The sidecar replies with a series of Done=false
-// frames carrying intermediate processing steps (reasoning, tool-call intents,
-// JSON-encoded in the frame text) followed by one Done=true frame with the final
-// answer. Steps are forwarded to the browser as {step:{...}} and are NOT
-// persisted; only the final answer is stored.
+// Each user message runs as an independent turn on its own gRPC Chat stream.
+// The sidecar replies with Done=false frames carrying intermediate processing
+// steps (reasoning, tool-call intents, JSON-encoded in the frame text) followed
+// by one Done=true frame with the final answer. Steps are forwarded to the
+// browser as {step:{...}} and are NOT persisted; only the final answer is.
+//
+// Crucially, both the turn and its persistence use a context DETACHED from the
+// WebSocket (context.WithoutCancel): a turn completes and its messages are saved
+// even if the user refreshes or navigates away mid-generation. Writes to the
+// (possibly closed) browser connection are best-effort and never abort a turn.
 func (h *Handler) HandleChat(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
@@ -101,18 +106,14 @@ func (h *Handler) HandleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	ctx := r.Context()
-
-	grpcStream, err := h.grpc.ChatStream(ctx, name)
-	if err != nil {
-		sendChatError(conn, "chat stream error: "+err.Error())
-		return
-	}
+	// Detached from the request: persistence and in-flight turns must survive
+	// the WebSocket closing (a refresh or tab switch mid-turn).
+	base := context.WithoutCancel(r.Context())
 
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			return // Client disconnected
+			return // Client disconnected; any in-flight turn finishes + persists below.
 		}
 
 		var cm config.ChatMessage
@@ -121,52 +122,64 @@ func (h *Handler) HandleChat(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Persist the user message before calling the agent, so history is
-		// captured even if the agent errors or the connection drops.
-		if h.store != nil && cm.Message != "" {
-			if _, err := h.store.AddMessage(ctx, name, cm.SessionKey, "user", cm.Message); err != nil {
-				log.Printf("persist user message for %s: %v", name, err)
-			}
-		}
+		h.runChatTurn(base, conn, name, cm)
+	}
+}
 
-		if err := grpcStream.Send(&pb.ChatRequest{Message: cm.Message, SessionKey: cm.SessionKey}); err != nil {
-			sendChatError(conn, "send error: "+err.Error())
+// runChatTurn processes one user message: persists it, opens a per-turn gRPC
+// Chat stream, forwards processing steps + the final answer to the browser
+// (best-effort), and persists the final answer. All persistence uses the
+// detached base context so it succeeds regardless of the WebSocket's state.
+func (h *Handler) runChatTurn(base context.Context, conn *websocket.Conn, name string, cm config.ChatMessage) {
+	// Persist the user message first, so it survives even if the turn errors.
+	if h.store != nil && cm.Message != "" {
+		if _, err := h.store.AddMessage(base, name, cm.SessionKey, "user", cm.Message); err != nil {
+			log.Printf("persist user message for %s: %v", name, err)
+		}
+	}
+
+	turnCtx, cancel := context.WithCancel(base)
+	defer cancel() // closes this turn's gRPC stream/connection
+
+	grpcStream, err := h.grpc.ChatStream(turnCtx, name)
+	if err != nil {
+		sendChatError(conn, "chat stream error: "+err.Error())
+		return
+	}
+	if err := grpcStream.Send(&pb.ChatRequest{Message: cm.Message, SessionKey: cm.SessionKey}); err != nil {
+		sendChatError(conn, "send error: "+err.Error())
+		return
+	}
+
+	for {
+		frame, err := grpcStream.Recv()
+		if err != nil {
+			sendChatError(conn, "chat recv error: "+err.Error())
 			return
 		}
 
-		// Read frames until the final (Done) frame for this turn.
-		for {
-			frame, err := grpcStream.Recv()
-			if err != nil {
-				sendChatError(conn, "chat recv error: "+err.Error())
-				return
+		// Intermediate step frame: forward as {step:{...}}, do not persist.
+		// Write failures are ignored — the browser may have gone away, but the
+		// turn must still run to completion and persist.
+		if !frame.GetDone() && frame.GetError() == "" && frame.GetText() != "" {
+			var step config.ChatStep
+			if json.Unmarshal([]byte(frame.GetText()), &step) == nil && step.Kind != "" {
+				b, _ := json.Marshal(config.ChatResponse{Step: &step})
+				_ = conn.WriteMessage(websocket.TextMessage, b)
 			}
-
-			// Intermediate step frame: forward as {step:{...}}, do not persist.
-			if !frame.GetDone() && frame.GetError() == "" && frame.GetText() != "" {
-				var step config.ChatStep
-				if json.Unmarshal([]byte(frame.GetText()), &step) == nil && step.Kind != "" {
-					b, _ := json.Marshal(config.ChatResponse{Step: &step})
-					if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
-						return
-					}
-				}
-				continue
-			}
-
-			// Final frame: persist the answer and forward it.
-			if h.store != nil && frame.GetError() == "" && frame.GetText() != "" {
-				if _, err := h.store.AddMessage(ctx, name, cm.SessionKey, "agent", frame.GetText()); err != nil {
-					log.Printf("persist agent message for %s: %v", name, err)
-				}
-			}
-			cr := config.ChatResponse{Text: frame.GetText(), Done: true, Error: frame.GetError()}
-			b, _ := json.Marshal(cr)
-			if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
-				return
-			}
-			break
+			continue
 		}
+
+		// Final frame: persist the answer (detached ctx), then forward it.
+		if h.store != nil && frame.GetError() == "" && frame.GetText() != "" {
+			if _, err := h.store.AddMessage(base, name, cm.SessionKey, "agent", frame.GetText()); err != nil {
+				log.Printf("persist agent message for %s: %v", name, err)
+			}
+		}
+		cr := config.ChatResponse{Text: frame.GetText(), Done: true, Error: frame.GetError()}
+		b, _ := json.Marshal(cr)
+		_ = conn.WriteMessage(websocket.TextMessage, b)
+		return
 	}
 }
 
