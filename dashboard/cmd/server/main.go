@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	dashboard "github.com/tuomas-lb/ember-claw/dashboard"
 	"github.com/tuomas-lb/ember-claw/dashboard/internal/api"
@@ -46,8 +47,11 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// API routes
+	// API routes. Responses are dynamic (chat history, instance state) and must
+	// never be served from a browser/proxy cache — otherwise a refresh can show
+	// stale history.
 	r.Route("/api", func(r chi.Router) {
+		r.Use(noStore)
 		r.Get("/instances", h.ListInstances)
 		r.Post("/instances", h.DeployInstance)
 		r.Get("/instances/{name}", h.GetInstance)
@@ -85,25 +89,43 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, r))
 }
 
-// spaHandler checks if the requested file exists in the embedded FS.
-// If it does, serve it. If not, serve index.html (SPA client-side routing).
+// noStore marks responses as non-cacheable (dynamic API data).
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// spaHandler serves the embedded frontend. The index.html shell is served
+// no-cache so the browser always picks up the current (content-hashed) JS/CSS
+// bundle — otherwise a cached shell keeps loading a stale frontend. The hashed
+// assets themselves are immutable and cached long.
 func spaHandler(fsys http.FileSystem, index []byte) http.Handler {
 	fileServer := http.FileServer(fsys)
+	serveIndex := func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		w.Write(index)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Try to open the file in the embedded FS
 		path := r.URL.Path
-		if path == "/" {
-			path = "/index.html"
+		if path == "/" || path == "/index.html" {
+			serveIndex(w)
+			return
 		}
 		if f, err := fsys.Open(path); err == nil {
 			f.Close()
+			// Vite emits content-hashed filenames under /assets — safe to cache forever.
+			if strings.HasPrefix(path, "/assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		// File doesn't exist — serve index.html for SPA routing
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		w.Write(index)
+		// Unknown path — SPA client-side route; serve the shell.
+		serveIndex(w)
 	})
 }
 

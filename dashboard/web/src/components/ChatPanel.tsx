@@ -226,7 +226,7 @@ export default function ChatPanel({ instanceName }: Props) {
         )}
         {messages.map(msg => (
           msg.role === 'thinking' ? (
-            <details key={msg.id} className="chat-thinking">
+            <details key={msg.id} className="chat-thinking" open>
               <summary>💭 thinking · {msg.steps?.length ?? 0} step{(msg.steps?.length ?? 0) === 1 ? '' : 's'}</summary>
               <div className="chat-steps">
                 {(msg.steps ?? []).map(renderStep)}
