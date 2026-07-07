@@ -15,6 +15,7 @@ package stream
 import (
 	"context"
 	"encoding/json"
+	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
@@ -31,6 +32,7 @@ type Step struct {
 type Sink func(Step)
 
 type ctxKey struct{}
+type recorderKey struct{}
 
 // WithSink returns a context carrying sink; the wrapped provider emits Steps to
 // it for the duration of the call chain rooted at this context.
@@ -45,6 +47,56 @@ func WithSink(ctx context.Context, sink Sink) context.Context {
 func sinkFrom(ctx context.Context) Sink {
 	s, _ := ctx.Value(ctxKey{}).(Sink)
 	return s
+}
+
+// Recorder captures the model's most recent content and reasoning across a
+// request's iterations. It exists to recover an answer when PicoClaw discards
+// it: its final-response handling falls back to ReasoningContent but not
+// Reasoning, so a turn where the model returns empty Content with the answer in
+// Reasoning (common with DeepSeek/OpenRouter) yields the "no response to give"
+// fallback even though the model did respond. Best() returns the recovered text.
+type Recorder struct {
+	mu            sync.Mutex
+	lastContent   string
+	lastReasoning string
+}
+
+func (r *Recorder) record(resp *providers.LLMResponse) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if resp.Content != "" {
+		r.lastContent = resp.Content
+	}
+	if resp.Reasoning != "" {
+		r.lastReasoning = resp.Reasoning
+	} else if resp.ReasoningContent != "" {
+		r.lastReasoning = resp.ReasoningContent
+	}
+}
+
+// Best returns the best recovered text: the last non-empty content, else the
+// last non-empty reasoning, else "".
+func (r *Recorder) Best() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.lastContent != "" {
+		return r.lastContent
+	}
+	return r.lastReasoning
+}
+
+// WithRecorder returns a context carrying rec; the wrapped provider records each
+// response into it.
+func WithRecorder(ctx context.Context, rec *Recorder) context.Context {
+	if rec == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, recorderKey{}, rec)
+}
+
+func recorderFrom(ctx context.Context) *Recorder {
+	r, _ := ctx.Value(recorderKey{}).(*Recorder)
+	return r
 }
 
 const maxArgPreview = 400
@@ -74,6 +126,9 @@ func (p *provider) Chat(
 	if err == nil && resp != nil {
 		if sink := sinkFrom(ctx); sink != nil {
 			emit(sink, resp)
+		}
+		if rec := recorderFrom(ctx); rec != nil {
+			rec.record(resp)
 		}
 	}
 	return resp, err
