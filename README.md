@@ -189,7 +189,7 @@ Ember-claw generates a `config.json` for each instance with these container-opti
 |---------|---------|---------|
 | `restrict_to_workspace` | `false` | Allow tool execution outside workspace (safe in container) |
 | `allow_read_outside_workspace` | `true` | Allow reading files outside workspace |
-| `max_tool_iterations` | `50` | Max LLM tool call iterations per message (default PicoClaw is 20) |
+| `max_tool_iterations` | `200` | Max LLM tool call iterations per message (default PicoClaw is 20; raised so coding/fleet bots don't hit "no response to give") |
 
 These can be overridden per-instance via `set-secret`:
 ```bash
@@ -426,6 +426,33 @@ Routes:
 | `/api/chat` | Bearer token | `POST {"message": "...", "session_id": "..."}` → agent response |
 
 The `/api/*` endpoints require `Authorization: Bearer <CONTROL_TOKEN>` and are **disabled (503) until `CONTROL_TOKEN` is set** — fail closed, since the agent has shell access. `eclaw expose` sets 900s nginx proxy timeouts so long tool-running chat requests don't get cut off. `eclaw unexpose <name>` removes the ingress and external service.
+
+### Fleet Dashboard (web control plane, mTLS-protected)
+
+For a full web UI over a whole namespace of bots — list/deploy/delete instances, chat with persistent history, stream logs, edit config — deploy the **fleet dashboard**, protected by mutual-TLS client certificates. This is the recommended way to run bots in Kubernetes with a shared interface.
+
+```bash
+# 1. Generate a CA + your browser client cert
+eclaw mtls init --client "$(whoami)" --out ./mtls
+
+# 2. Deploy the dashboard (namespace-scoped RBAC, ingress, mTLS, chat history)
+eclaw dashboard deploy --namespace myfleet \
+  --host fleet.example.com --issuer letsencrypt-prod \
+  --mtls-ca ./mtls/ca.crt --with-postgres
+
+# 3. Point DNS at the ingress, wait for the TLS cert, import ./mtls/client.p12
+```
+
+| Command | Description |
+|---------|-------------|
+| `eclaw mtls init` | Generate a CA + `client.p12` for nginx client-cert auth |
+| `eclaw dashboard deploy --host <> [--mtls-ca ca.crt] [--with-postgres] [--sidecar-image <>]` | Deploy/update the fleet dashboard |
+| `eclaw dashboard delete [--with-postgres]` | Remove the dashboard (Postgres PVC retained) |
+| `eclaw expose <name> --mtls-ca ca.crt` | Add client-cert auth to an instance's own ingress |
+
+The dashboard is namespace-scoped (least privilege) and deploys new instances using the image in its `SIDECAR_IMAGE` env (`--sidecar-image`). A bot deployed with `--fleet-admin` can run these same commands from inside its pod to manage siblings. **Full step-by-step playbook, including a bot spinning up more bots: [docs/fleet.md](docs/fleet.md).**
+
+> The dashboard exposes deploy/delete/secret operations — always protect it with `--mtls-ca` before exposing it publicly.
 
 ### Adding Custom Integrations
 

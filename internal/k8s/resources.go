@@ -46,29 +46,29 @@ type CalDAVAccount struct {
 
 // DeployOptions contains all configuration for deploying a PicoClaw instance.
 type DeployOptions struct {
-	Name          string            // Instance name (resources are prefixed with picoclaw-{name})
-	Provider      string            // AI provider (anthropic, openai, etc.)
-	APIKey        string            // Provider API key
-	Model         string            // Model name
-	Image         string            // Container image (resolved from IMAGE_REGISTRY or ECLAW_IMAGE)
-	CPURequest    string            // e.g., "100m"
-	CPULimit      string            // e.g., "500m"
-	MemoryRequest string            // e.g., "128Mi"
-	MemoryLimit   string            // e.g., "512Mi"
-	StorageSize   string            // PVC size (default: "1Gi")
-	StorageClass  string            // Optional storage class name
-	CustomEnv     map[string]string // Additional env vars
-	LinearAPIKey   string            // Linear API key (optional)
-	LinearTeamID   string            // Linear team UUID (optional)
-	SlackBotToken  string            // Slack bot token (optional)
-	CalDAVAccounts []CalDAVAccount   // CalDAV calendar accounts (optional)
+	Name           string                     // Instance name (resources are prefixed with picoclaw-{name})
+	Provider       string                     // AI provider (anthropic, openai, etc.)
+	APIKey         string                     // Provider API key
+	Model          string                     // Model name
+	Image          string                     // Container image (resolved from IMAGE_REGISTRY or ECLAW_IMAGE)
+	CPURequest     string                     // e.g., "100m"
+	CPULimit       string                     // e.g., "500m"
+	MemoryRequest  string                     // e.g., "128Mi"
+	MemoryLimit    string                     // e.g., "512Mi"
+	StorageSize    string                     // PVC size (default: "1Gi")
+	StorageClass   string                     // Optional storage class name
+	CustomEnv      map[string]string          // Additional env vars
+	LinearAPIKey   string                     // Linear API key (optional)
+	LinearTeamID   string                     // Linear team UUID (optional)
+	SlackBotToken  string                     // Slack bot token (optional)
+	CalDAVAccounts []CalDAVAccount            // CalDAV calendar accounts (optional)
 	MCPServers     map[string]mcpServerConfig // Additional MCP servers to include
-	Identity       string            // Custom IDENTITY.md content (optional, uses default if empty)
-	GitHubToken    string            // GitHub token, injected as GITHUB_TOKEN + GH_TOKEN (optional)
-	SharedPVC      string            // Name of a shared PVC mounted at SharedMountPath, created if missing (optional)
-	SharedPVCSize  string            // Size of the shared PVC when created (default: DefaultSharedPVCSize)
-	FleetAdmin     bool              // Grant the instance RBAC to manage sibling instances (fleet control)
-	Playwright     bool              // Enable the Playwright browser MCP server
+	Identity       string                     // Custom IDENTITY.md content (optional, uses default if empty)
+	GitHubToken    string                     // GitHub token, injected as GITHUB_TOKEN + GH_TOKEN (optional)
+	SharedPVC      string                     // Name of a shared PVC mounted at SharedMountPath, created if missing (optional)
+	SharedPVCSize  string                     // Size of the shared PVC when created (default: DefaultSharedPVCSize)
+	FleetAdmin     bool                       // Grant the instance RBAC to manage sibling instances (fleet control)
+	Playwright     bool                       // Enable the Playwright browser MCP server
 }
 
 // picoClawConfig is the subset of PicoClaw's config.json we generate for deployment.
@@ -79,7 +79,7 @@ type picoClawConfig struct {
 			ModelName           string `json:"model_name"`
 			Workspace           string `json:"workspace"`
 			RestrictToWorkspace bool   `json:"restrict_to_workspace"`
-			AllowReadOutsideWS bool   `json:"allow_read_outside_workspace"`
+			AllowReadOutsideWS  bool   `json:"allow_read_outside_workspace"`
 			MaxToolIterations   int    `json:"max_tool_iterations"`
 		} `json:"defaults"`
 	} `json:"agents"`
@@ -161,7 +161,10 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 	cfg.Agents.Defaults.Workspace = MountPath + "/workspace"
 	cfg.Agents.Defaults.RestrictToWorkspace = false
 	cfg.Agents.Defaults.AllowReadOutsideWS = true
-	cfg.Agents.Defaults.MaxToolIterations = 50
+	// Container agents (esp. coding/fleet bots with playwright + many MCP tools)
+	// routinely exceed PicoClaw's default 20 and the old 50, hitting the
+	// "no response to give" fallback. 200 gives ample headroom.
+	cfg.Agents.Defaults.MaxToolIterations = 200
 	// Disable command deny patterns — safe in isolated container.
 	cfg.Tools.Exec.EnableDenyPatterns = false
 	cfg.Tools.Exec.AllowRemote = true
@@ -335,6 +338,29 @@ func defaultAgentsInstructions() string {
 - Show don't tell — run the command, show the output
 - One-sentence error reports, not paragraphs of apology
 - Skip "I'd be happy to" and "Sure!" — just do the thing
+
+## Fleet Operations (spinning up more bots)
+
+If you were deployed with fleet-admin rights, the ` + "`eclaw`" + ` CLI is installed and
+authenticated to this cluster via your in-pod ServiceAccount (namespace-scoped —
+you can only manage instances in your OWN namespace). ECLAW_NAMESPACE and
+ECLAW_IMAGE are set for you. Check with: ` + "`eclaw list`" + `.
+
+To create a new bot like yourself:
+  eclaw deploy <name> --provider <p> --model <m> \
+    --shared-pvc <fleet-pvc> --fleet-admin --playwright
+The new bot shares your fleet storage (mount the same --shared-pvc) and, with
+--fleet-admin, can itself manage siblings. Kubernetes forbids privilege
+escalation, so a bot can only grant rights it already holds.
+
+To give the fleet a web control plane + mTLS-protected UI like the one humans use:
+  eclaw mtls init --client <you> --out /tmp/mtls        # CA + client.p12
+  eclaw dashboard deploy --host <dns-name> --mtls-ca /tmp/mtls/ca.crt --with-postgres
+Then a human points DNS at the ingress and imports client.p12 to reach it.
+
+Manage the fleet: eclaw status/logs/chat/restart/delete <name>. Full playbook:
+docs/fleet.md in the ember-claw repo. Never deploy outside your namespace or
+hand out credentials you were not explicitly told to share.
 `
 }
 
@@ -1388,14 +1414,15 @@ func (c *Client) hasRegistrySecret(ctx context.Context) bool {
 
 // ExposeOptions contains configuration for exposing an instance externally.
 type ExposeOptions struct {
-	Name     string // Instance name
-	Type     string // "nodeport", "loadbalancer", or "ingress"
-	NodePort int32  // Optional specific NodePort number (only for nodeport type)
-	Host     string // Hostname for ingress (required for ingress type)
-	TLS      bool   // Enable TLS via cert-manager (only for ingress)
-	Issuer   string // cert-manager ClusterIssuer name (default: letsencrypt-prod)
-	Class    string // Ingress class (default: nginx)
-	Path     string // URL path prefix (default: /)
+	Name      string // Instance name
+	Type      string // "nodeport", "loadbalancer", or "ingress"
+	NodePort  int32  // Optional specific NodePort number (only for nodeport type)
+	Host      string // Hostname for ingress (required for ingress type)
+	TLS       bool   // Enable TLS via cert-manager (only for ingress)
+	Issuer    string // cert-manager ClusterIssuer name (default: letsencrypt-prod)
+	Class     string // Ingress class (default: nginx)
+	Path      string // URL path prefix (default: /)
+	MTLSCAPEM []byte // Optional CA cert PEM; when set, ingress requires client-cert auth
 }
 
 // ExposeResult holds the result of exposing an instance.
@@ -1517,6 +1544,26 @@ func (c *Client) ExposeInstance(ctx context.Context, opts ExposeOptions) (*Expos
 			},
 		}
 
+		// Optional mTLS client-certificate auth: store the CA cert in a secret
+		// and point the nginx auth-tls annotations at it.
+		if len(opts.MTLSCAPEM) > 0 {
+			caSecret := baseName + "-mtls-ca"
+			s := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: caSecret, Namespace: c.namespace, Labels: instanceLabels},
+				Data:       map[string][]byte{"ca.crt": opts.MTLSCAPEM},
+			}
+			if _, err := c.cs.CoreV1().Secrets(c.namespace).Create(ctx, s, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+				if _, err := c.cs.CoreV1().Secrets(c.namespace).Update(ctx, s, metav1.UpdateOptions{}); err != nil {
+					return nil, fmt.Errorf("update mtls ca secret: %w", err)
+				}
+			} else if err != nil {
+				return nil, fmt.Errorf("create mtls ca secret: %w", err)
+			}
+			ingress.Annotations["nginx.ingress.kubernetes.io/auth-tls-secret"] = c.namespace + "/" + caSecret
+			ingress.Annotations["nginx.ingress.kubernetes.io/auth-tls-verify-client"] = "on"
+			ingress.Annotations["nginx.ingress.kubernetes.io/auth-tls-verify-depth"] = "1"
+		}
+
 		if opts.TLS {
 			ingress.Annotations["cert-manager.io/cluster-issuer"] = opts.Issuer
 			ingress.Spec.TLS = []networkingv1.IngressTLS{
@@ -1584,4 +1631,3 @@ func (c *Client) UnexposeInstance(ctx context.Context, name string) error {
 
 	return nil
 }
-

@@ -163,6 +163,18 @@ eclaw deploy overseer \
 
 The instance can then run `eclaw` commands itself (in-cluster ServiceAccount) to deploy and manage worker instances, which can mount the same `--shared-pvc fleet-shared` for file exchange.
 
+### Fleet dashboard + mTLS
+
+To run a namespace of bots behind a single mTLS-protected web control plane (list/deploy/chat/logs, persistent chat history), see the dedicated **[Fleet Guide](fleet.md)**. In short:
+
+```bash
+eclaw mtls init --client "$(whoami)" --out ./mtls
+eclaw dashboard deploy --namespace myfleet --host fleet.example.com \
+  --mtls-ca ./mtls/ca.crt --with-postgres
+```
+
+Build the dashboard image once with `make build-push-dashboard EMBER_VERSION=x.y`.
+
 ### Re-deploying
 
 Deploying to an existing instance name updates resources in place (upsert). No need to delete first.
@@ -239,7 +251,7 @@ These can be set via `set-secret` using the `PICOCLAW_` env var prefix:
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS` | `50` | Max tool call iterations per message |
+| `PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS` | `200` | Max tool call iterations per message |
 | `PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE` | `false` | Restrict file/exec operations to workspace dir |
 | `PICOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE` | `true` | Allow reading files outside workspace |
 | `PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS` | `true` | Block dangerous shell commands |

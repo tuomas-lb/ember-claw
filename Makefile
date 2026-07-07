@@ -4,13 +4,15 @@ GO    ?= $(shell which go 2>/dev/null || echo /usr/local/go/bin/go)
 
 SERVICE_NAME      := ember-claw-sidecar
 DOCKERFILE        := Dockerfile
+DASHBOARD_NAME    := picoclaw-dashboard
+DASHBOARD_DOCKERFILE := images/dashboard/Dockerfile
 IMAGE_REGISTRY    ?= $(shell grep -m1 '^IMAGE_REGISTRY=' .env 2>/dev/null | cut -d= -f2- | sed 's/^["'"'"']//;s/["'"'"']$$//')
 EMBER_VERSION     ?=
 BUILD_NUMBER_FILE := .ember-build-numbers
 K8S_NAMESPACE     := picoclaw
 KUBECONFIG_PATH   ?=
 
-.PHONY: help build-eclaw build-picoclaw push-picoclaw build-push-picoclaw deploy-picoclaw
+.PHONY: help build-eclaw build-picoclaw push-picoclaw build-push-picoclaw deploy-picoclaw build-dashboard push-dashboard build-push-dashboard
 .DEFAULT_GOAL := help
 
 help: ## Show this help menu
@@ -103,6 +105,42 @@ push-picoclaw: ## Push Docker image to registry (run build-picoclaw first)
 	fi
 
 build-push-picoclaw: build-picoclaw push-picoclaw ## Build and push Docker image in one step
+
+build-dashboard: ## Build the fleet dashboard image (picoclaw-dashboard). Use EMBER_VERSION=x.y for a versioned tag
+	@if [ -z "$(IMAGE_REGISTRY)" ]; then \
+		echo "Error: IMAGE_REGISTRY is not set (set it in .env or the environment)"; exit 1; \
+	fi
+	@if [ -n "$(EMBER_VERSION)" ]; then \
+		if [ -f $(BUILD_NUMBER_FILE) ]; then \
+			CURRENT=$$(grep "^$(DASHBOARD_NAME):" $(BUILD_NUMBER_FILE) | head -1 | cut -d: -f2 || echo "0"); \
+		else CURRENT="0"; fi; \
+		BUILD_NUMBER=$$((CURRENT + 1)); \
+		if [ -f $(BUILD_NUMBER_FILE) ] && grep -q "^$(DASHBOARD_NAME):" $(BUILD_NUMBER_FILE); then \
+			sed -i.bak "s/^$(DASHBOARD_NAME):.*/$(DASHBOARD_NAME):$$BUILD_NUMBER/" $(BUILD_NUMBER_FILE) && rm -f $(BUILD_NUMBER_FILE).bak; \
+		else echo "$(DASHBOARD_NAME):$$BUILD_NUMBER" >> $(BUILD_NUMBER_FILE); fi; \
+		IMAGE_TAG="$(EMBER_VERSION).$$BUILD_NUMBER"; \
+	else IMAGE_TAG="latest"; fi; \
+	echo "Building dashboard image: $(IMAGE_REGISTRY)/$(DASHBOARD_NAME):$$IMAGE_TAG"; \
+	docker buildx build --platform linux/amd64 \
+		-f $(DASHBOARD_DOCKERFILE) \
+		-t $(IMAGE_REGISTRY)/$(DASHBOARD_NAME):$$IMAGE_TAG \
+		-t $(IMAGE_REGISTRY)/$(DASHBOARD_NAME):latest \
+		.
+
+push-dashboard: ## Push the fleet dashboard image (run build-dashboard first)
+	@if [ -z "$(IMAGE_REGISTRY)" ]; then \
+		echo "Error: IMAGE_REGISTRY is not set (set it in .env or the environment)"; exit 1; \
+	fi
+	@if [ -n "$(EMBER_VERSION)" ]; then \
+		BUILD_NUMBER=$$(grep "^$(DASHBOARD_NAME):" $(BUILD_NUMBER_FILE) 2>/dev/null | head -1 | cut -d: -f2 || echo ""); \
+		if [ -z "$$BUILD_NUMBER" ]; then echo "Error: run make build-dashboard EMBER_VERSION=$(EMBER_VERSION) first"; exit 1; fi; \
+		IMAGE_TAG="$(EMBER_VERSION).$$BUILD_NUMBER"; \
+	else IMAGE_TAG="latest"; fi; \
+	echo "Pushing $(IMAGE_REGISTRY)/$(DASHBOARD_NAME):$$IMAGE_TAG"; \
+	docker push $(IMAGE_REGISTRY)/$(DASHBOARD_NAME):$$IMAGE_TAG; \
+	if [ "$$IMAGE_TAG" != "latest" ]; then docker push $(IMAGE_REGISTRY)/$(DASHBOARD_NAME):latest; fi
+
+build-push-dashboard: build-dashboard push-dashboard ## Build and push the dashboard image in one step
 
 deploy-picoclaw: build-eclaw ## Deploy PicoClaw instance via interactive wizard (or override: NAME=x PROVIDER=y API_KEY=z MODEL=m)
 	@echo "=== PicoClaw Instance Deployment ==="
