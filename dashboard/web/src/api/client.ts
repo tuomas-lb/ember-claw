@@ -53,6 +53,9 @@ export interface Provider {
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    // Never serve API data (chat history, instance state) from the HTTP cache —
+    // a cached response can make a refresh show stale history.
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     ...options,
   });
