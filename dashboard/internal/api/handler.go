@@ -7,6 +7,7 @@ import (
 
 	"strconv"
 
+	"github.com/tuomas-lb/ember-claw/dashboard/internal/chat"
 	"github.com/tuomas-lb/ember-claw/dashboard/internal/config"
 	grpcclient "github.com/tuomas-lb/ember-claw/dashboard/internal/grpc"
 	"github.com/tuomas-lb/ember-claw/dashboard/internal/k8s"
@@ -20,11 +21,17 @@ type Handler struct {
 	k8s   *k8s.Client
 	grpc  *grpcclient.Client
 	store *store.Store // may be nil when DATABASE_URL is not configured
+	chat  *chat.Manager
 }
 
 // NewHandler constructs a Handler. store may be nil (persistence disabled).
 func NewHandler(k8sClient *k8s.Client, grpcClient *grpcclient.Client, chatStore *store.Store) *Handler {
-	return &Handler{k8s: k8sClient, grpc: grpcClient, store: chatStore}
+	return &Handler{
+		k8s:   k8sClient,
+		grpc:  grpcClient,
+		store: chatStore,
+		chat:  chat.New(grpcClient, chatStore),
+	}
 }
 
 // --------------------------------------------------------------------------

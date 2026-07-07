@@ -666,6 +666,49 @@ tbody td {
   font-style: italic;
 }
 
+.chat-empty {
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+  padding: 24px;
+}
+
+/* Live in-flight turn: a clear "working" panel with a spinner + current steps. */
+.chat-working {
+  align-self: flex-start;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent, #6ea8fe);
+  border-radius: 6px;
+  background: var(--bg-2);
+}
+
+.chat-working-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.chat-working-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--border-hi);
+  border-top-color: var(--accent, #6ea8fe);
+  border-radius: 50%;
+  animation: chat-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes chat-spin {
+  to { transform: rotate(360deg); }
+}
+
 .chat-input-row {
   display: flex;
   gap: 8px;

@@ -46,6 +46,17 @@ export interface ChatMessage {
   step?: ChatStep;
 }
 
+// ChatEvent is the server-pushed event on the chat WebSocket (see internal/chat).
+export interface ChatEvent {
+  type: 'snapshot' | 'status' | 'step' | 'done' | 'error';
+  running?: boolean;      // snapshot/status: is a turn in progress
+  message?: string;       // snapshot/status: the running turn's user message
+  steps?: ChatStep[];     // snapshot: steps accumulated so far
+  step?: ChatStep;        // step: one new processing step
+  text?: string;          // done: the final answer
+  error?: string;         // error: failure message
+}
+
 export interface Provider {
   name: string;
   api_base: string;
@@ -122,8 +133,8 @@ export function connectLogs(
   return ws;
 }
 
-export function connectChat(name: string): WebSocket {
-  const url = `${wsBase()}/api/instances/${name}/chat`;
+export function connectChat(name: string, session: string): WebSocket {
+  const url = `${wsBase()}/api/instances/${name}/chat?session=${encodeURIComponent(session)}`;
   return new WebSocket(url);
 }
 
