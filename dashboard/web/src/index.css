@@ -591,19 +591,25 @@ tbody td {
 
 .chat-thinking > summary {
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
-  color: var(--text-faint);
-  padding: 3px 6px;
+  color: var(--text-dim);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
   user-select: none;
-  list-style: revert;
 }
 
 .chat-thinking > summary:hover {
-  color: var(--text-dim);
+  color: var(--text);
+  border-color: var(--border-hi);
 }
 
 .chat-thinking[open] > summary {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 /* Live processing steps (reasoning / tool calls) shown while the agent works. */
