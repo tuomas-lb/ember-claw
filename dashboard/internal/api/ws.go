@@ -151,6 +151,10 @@ func (h *Handler) runChatTurn(base context.Context, conn *websocket.Conn, name s
 		return
 	}
 
+	// Accumulate the turn's processing steps so they can be persisted alongside
+	// the answer and re-rendered on reload/back-track.
+	var steps []config.ChatStep
+
 	for {
 		frame, err := grpcStream.Recv()
 		if err != nil {
@@ -164,16 +168,27 @@ func (h *Handler) runChatTurn(base context.Context, conn *websocket.Conn, name s
 		if !frame.GetDone() && frame.GetError() == "" && frame.GetText() != "" {
 			var step config.ChatStep
 			if json.Unmarshal([]byte(frame.GetText()), &step) == nil && step.Kind != "" {
+				steps = append(steps, step)
 				b, _ := json.Marshal(config.ChatResponse{Step: &step})
 				_ = conn.WriteMessage(websocket.TextMessage, b)
 			}
 			continue
 		}
 
-		// Final frame: persist the answer (detached ctx), then forward it.
-		if h.store != nil && frame.GetError() == "" && frame.GetText() != "" {
-			if _, err := h.store.AddMessage(base, name, cm.SessionKey, "agent", frame.GetText()); err != nil {
-				log.Printf("persist agent message for %s: %v", name, err)
+		// Final frame (detached ctx for all writes). Persist the thinking steps
+		// first (so they sort before the answer), then the answer.
+		if h.store != nil {
+			if len(steps) > 0 {
+				if sb, err := json.Marshal(steps); err == nil {
+					if _, err := h.store.AddMessage(base, name, cm.SessionKey, "thinking", string(sb)); err != nil {
+						log.Printf("persist thinking for %s: %v", name, err)
+					}
+				}
+			}
+			if frame.GetError() == "" && frame.GetText() != "" {
+				if _, err := h.store.AddMessage(base, name, cm.SessionKey, "agent", frame.GetText()); err != nil {
+					log.Printf("persist agent message for %s: %v", name, err)
+				}
 			}
 		}
 		cr := config.ChatResponse{Text: frame.GetText(), Done: true, Error: frame.GetError()}

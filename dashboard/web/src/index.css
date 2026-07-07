@@ -582,6 +582,30 @@ tbody td {
   color: var(--text-dim);
 }
 
+/* Persisted, collapsible "thinking" block shown in history before an answer. */
+.chat-thinking {
+  align-self: flex-start;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.chat-thinking > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 3px 6px;
+  user-select: none;
+  list-style: revert;
+}
+
+.chat-thinking > summary:hover {
+  color: var(--text-dim);
+}
+
+.chat-thinking[open] > summary {
+  margin-bottom: 4px;
+}
+
 /* Live processing steps (reasoning / tool calls) shown while the agent works. */
 .chat-steps {
   align-self: flex-start;
