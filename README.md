@@ -137,12 +137,14 @@ The `eclaw` CLI auto-loads a `.env` file from the current directory. This is the
 # .env - Container registry (required for build/push/deploy)
 IMAGE_REGISTRY=your.registry.com
 
-# API keys per provider
+# API keys per provider (env var is <PROVIDER>_API_KEY, uppercased)
 ANTHROPIC_API_KEY=sk-ant-api03-...
 OPENAI_API_KEY=sk-...
 GEMINI_API_KEY=AIza...
 GROQ_API_KEY=gsk_...
 DEEPSEEK_API_KEY=sk-...
+OPENROUTER_API_KEY=sk-or-v1-...
+BYTEPLUS_API_KEY=<ModelArk API key>
 
 # Integration credentials
 LINEAR_API_KEY=lin_api_...
@@ -154,6 +156,20 @@ KUBECONFIG_BASE64=<base64-encoded-kubeconfig>
 ```
 
 When `--api-key` is not passed to `deploy` or `models`, eclaw automatically resolves it from the provider-specific env var (e.g., `GEMINI_API_KEY` for `--provider gemini`).
+
+**BytePlus ModelArk** ([docs](https://docs.byteplus.com/en/docs/ModelArk/1330626)) is OpenAI-compatible. Deploy against the standard endpoint:
+
+```bash
+eclaw deploy my-agent --provider byteplus --model kimi-k2-250905
+# key from BYTEPLUS_API_KEY; --model accepts a ModelArk model ID or an inference endpoint ID (ep-...)
+```
+
+For a **Coding Plan** subscription, point at the coding endpoint so requests draw on the plan quota:
+
+```bash
+eclaw deploy my-agent --provider byteplus --model <model-or-ep-id> \
+  --api-base https://ark.ap-southeast.bytepluses.com/api/coding/v3
+```
 
 ### Kubeconfig Resolution
 
@@ -232,8 +248,9 @@ Create a named PicoClaw instance on the cluster. Creates the namespace automatic
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--provider` | *required* | AI provider (`anthropic`, `openai`, `gemini`, `groq`, `deepseek`, `openrouter`, `copilot`) |
+| `--provider` | *required* | AI provider (`anthropic`, `openai`, `gemini`, `groq`, `deepseek`, `openrouter`, `mistral`, `xai`, `kimi`, `copilot`, `byteplus`) |
 | `--api-key` | from env | API key (auto-resolved from `<PROVIDER>_API_KEY` env var if not set) |
+| `--api-base` | provider default | Override the provider's API base URL (or `ECLAW_API_BASE` env) — for region/plan-specific or self-hosted OpenAI-compatible endpoints |
 | `--model` | *required* | Model identifier |
 | `--image` | from `ECLAW_IMAGE` or `IMAGE_REGISTRY` env | Container image |
 | `--cpu-request` | `100m` | CPU request |

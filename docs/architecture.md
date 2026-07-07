@@ -107,7 +107,11 @@ Restart count is aggregated from all container statuses in the pod.
 
 API key resolution for `deploy` and `models`:
 1. `--api-key` flag (explicit)
-2. `<PROVIDER>_API_KEY` env var (e.g., `GEMINI_API_KEY`, `OPENAI_API_KEY`)
+2. `<PROVIDER>_API_KEY` env var (e.g., `GEMINI_API_KEY`, `OPENAI_API_KEY`, `BYTEPLUS_API_KEY`)
+
+### Provider → model_list mapping
+
+`buildPicoClawConfig` turns `--provider`/`--model` into a PicoClaw `model_list` entry whose `model` field is `"<protocol>/<model-id>"`. The protocol prefix selects PicoClaw's provider adapter; each provider also gets a default `api_base`. Most ember-claw provider names are PicoClaw protocol prefixes as-is; **`byteplus` maps to the `volcengine` protocol** (BytePlus ModelArk is the international brand of Volcengine Ark and is OpenAI-compatible) with `api_base` `https://ark.ap-southeast.bytepluses.com/api/v3`. A `--api-base` flag (or `ECLAW_API_BASE`) overrides the default for any provider — region/plan-specific endpoints (e.g. BytePlus's Coding Plan `/api/coding/v3`) or self-hosted OpenAI-compatible gateways.
 
 ### PicoClaw Configuration in Container
 

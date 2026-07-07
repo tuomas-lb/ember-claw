@@ -41,8 +41,10 @@ func ListModels(ctx context.Context, provider, apiKey string) ([]Model, error) {
 		return listOpenAIModels(ctx, "https://api.moonshot.cn/v1", apiKey)
 	case "copilot":
 		return listOpenAIModels(ctx, "https://api.githubcopilot.com", apiKey)
+	case "byteplus":
+		return listOpenAIModels(ctx, "https://ark.ap-southeast.bytepluses.com/api/v3", apiKey)
 	default:
-		return nil, fmt.Errorf("model listing not supported for provider %q (supported: openai, gemini, anthropic, groq, deepseek, openrouter, mistral, xai, kimi, copilot)", provider)
+		return nil, fmt.Errorf("model listing not supported for provider %q (supported: openai, gemini, anthropic, groq, deepseek, openrouter, mistral, xai, kimi, copilot, byteplus)", provider)
 	}
 }
 

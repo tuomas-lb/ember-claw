@@ -543,6 +543,50 @@ func TestDeployInstance_GeminiProvider(t *testing.T) {
 	assert.Contains(t, configJSON, "generativelanguage.googleapis.com", "config.json must contain Gemini API base")
 }
 
+func TestDeployInstance_BytePlusProvider(t *testing.T) {
+	readConfig := func(t *testing.T, client *Client, ctx context.Context) string {
+		fakeCS := client.cs.(*fake.Clientset)
+		secrets, _ := fakeCS.CoreV1().Secrets(testNamespace).List(ctx, metav1.ListOptions{})
+		require.Len(t, secrets.Items, 1)
+		s := secrets.Items[0]
+		if v, ok := s.StringData["config.json"]; ok {
+			return v
+		}
+		return string(s.Data["config.json"])
+	}
+
+	t.Run("default endpoint + volcengine protocol", func(t *testing.T) {
+		client := newTestClient()
+		ctx := context.Background()
+		opts := defaultDeployOptions()
+		opts.Provider = "byteplus"
+		opts.APIKey = "ark-test-key"
+		opts.Model = "kimi-k2-250905"
+
+		require.NoError(t, client.DeployInstance(ctx, opts))
+		cfg := readConfig(t, client, ctx)
+		assert.Contains(t, cfg, "ark-test-key")
+		// BytePlus maps to PicoClaw's OpenAI-compatible "volcengine" protocol.
+		assert.Contains(t, cfg, "volcengine/kimi-k2-250905", "model ref must use the volcengine protocol")
+		assert.Contains(t, cfg, "https://ark.ap-southeast.bytepluses.com/api/v3", "must default to the standard ModelArk endpoint")
+	})
+
+	t.Run("api-base override (Coding Plan endpoint)", func(t *testing.T) {
+		client := newTestClient()
+		ctx := context.Background()
+		opts := defaultDeployOptions()
+		opts.Provider = "byteplus"
+		opts.APIKey = "ark-test-key"
+		opts.Model = "ep-20260101-abcde"
+		opts.APIBase = "https://ark.ap-southeast.bytepluses.com/api/coding/v3"
+
+		require.NoError(t, client.DeployInstance(ctx, opts))
+		cfg := readConfig(t, client, ctx)
+		assert.Contains(t, cfg, "https://ark.ap-southeast.bytepluses.com/api/coding/v3", "--api-base must override the default endpoint")
+		assert.NotContains(t, cfg, "/api/v3\"", "the default endpoint must not also appear")
+	})
+}
+
 // TestGetInstanceLogs verifies log retrieval path (happy path with a running pod).
 func TestGetInstanceLogs(t *testing.T) {
 	fakeCS := fake.NewSimpleClientset()

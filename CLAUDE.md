@@ -84,6 +84,10 @@ Generated config.json sets container-optimized defaults:
 - `enable_deny_patterns: false` (safety guard off in container)
 - `allow_remote: true`
 
+### Providers
+
+`--provider` supports: anthropic, openai, gemini, groq, deepseek, openrouter, mistral, xai, kimi, copilot, byteplus. `buildPicoClawConfig` (internal/k8s/resources.go) maps each to a PicoClaw protocol prefix + default `api_base`; the key resolves from `<PROVIDER>_API_KEY`. `byteplus` (BytePlus ModelArk, OpenAI-compatible) maps to the `volcengine` protocol, default base `https://ark.ap-southeast.bytepluses.com/api/v3`. `--api-base` / `ECLAW_API_BASE` overrides the default endpoint for any provider (region/plan-specific like BytePlus Coding Plan `/api/coding/v3`, or self-hosted gateways).
+
 ### MCP Integrations (built into container)
 
 | MCP Server | Package | Purpose | Config |

@@ -69,6 +69,7 @@ func newDeployCommand() *cobra.Command {
 	var (
 		provider       string
 		apiKey         string
+		apiBase        string
 		model          string
 		image          string
 		cpuRequest     string
@@ -147,6 +148,7 @@ func newDeployCommand() *cobra.Command {
 				Name:           name,
 				Provider:       provider,
 				APIKey:         resolvedKey,
+				APIBase:        envDefault(apiBase, "ECLAW_API_BASE"),
 				Model:          model,
 				Image:          image,
 				CPURequest:     cpuRequest,
@@ -179,6 +181,7 @@ func newDeployCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&provider, "provider", "", "AI provider (or ECLAW_PROVIDER env)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key (or <PROVIDER>_API_KEY env)")
+	cmd.Flags().StringVar(&apiBase, "api-base", "", "Override the provider's default API base URL (or ECLAW_API_BASE env) — e.g. a region/plan-specific or self-hosted OpenAI-compatible endpoint")
 	cmd.Flags().StringVar(&model, "model", "", "Model identifier (or ECLAW_MODEL env)")
 	cmd.Flags().StringVar(&image, "image", "", "Container image (or ECLAW_IMAGE / IMAGE_REGISTRY env)")
 	cmd.Flags().StringVar(&cpuRequest, "cpu-request", "100m", "CPU request for the instance pod")

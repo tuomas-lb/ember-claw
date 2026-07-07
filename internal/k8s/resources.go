@@ -49,6 +49,7 @@ type DeployOptions struct {
 	Name           string                     // Instance name (resources are prefixed with picoclaw-{name})
 	Provider       string                     // AI provider (anthropic, openai, etc.)
 	APIKey         string                     // Provider API key
+	APIBase        string                     // Optional override of the provider's default API base URL (e.g. a region or plan-specific endpoint)
 	Model          string                     // Model name
 	Image          string                     // Container image (resolved from IMAGE_REGISTRY or ECLAW_IMAGE)
 	CPURequest     string                     // e.g., "100m"
@@ -153,8 +154,19 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 	provider := strings.ToLower(opts.Provider)
 	modelID := opts.Model
 
-	// Build the protocol/model-id reference for model_list
-	modelRef := provider + "/" + modelID
+	// The model_list "model" field is "<protocol>/<model-id>", where the
+	// protocol prefix selects PicoClaw's provider adapter. Most ember-claw
+	// provider names are also PicoClaw protocol prefixes; a few map to a
+	// different (OpenAI-compatible) protocol PicoClaw recognizes.
+	protocol := provider
+	switch provider {
+	case "byteplus":
+		// BytePlus ModelArk is the international brand of Volcengine Ark and is
+		// OpenAI-compatible; PicoClaw routes the "volcengine" protocol through
+		// its generic OpenAI HTTP provider.
+		protocol = "volcengine"
+	}
+	modelRef := protocol + "/" + modelID
 
 	cfg := picoClawConfig{}
 	cfg.Agents.Defaults.ModelName = modelID
@@ -197,6 +209,17 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 		entry.APIBase = "https://api.moonshot.cn/v1"
 	case "copilot":
 		entry.APIBase = "https://api.githubcopilot.com"
+	case "byteplus":
+		// BytePlus ModelArk OpenAI-compatible endpoint (standard model
+		// invocation). Coding Plan users should pass --api-base
+		// https://ark.ap-southeast.bytepluses.com/api/coding/v3 instead.
+		entry.APIBase = "https://ark.ap-southeast.bytepluses.com/api/v3"
+	}
+
+	// An explicit --api-base overrides the provider default (region- or
+	// plan-specific endpoints, self-hosted OpenAI-compatible gateways, etc.).
+	if opts.APIBase != "" {
+		entry.APIBase = opts.APIBase
 	}
 
 	cfg.ModelList = []picoClawModelEntry{entry}
