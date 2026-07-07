@@ -189,7 +189,7 @@ Ember-claw generates a `config.json` for each instance with these container-opti
 |---------|---------|---------|
 | `restrict_to_workspace` | `false` | Allow tool execution outside workspace (safe in container) |
 | `allow_read_outside_workspace` | `true` | Allow reading files outside workspace |
-| `max_tool_iterations` | `50` | Max LLM tool call iterations per message (default PicoClaw is 20) |
+| `max_tool_iterations` | `200` | Max LLM tool call iterations per message (default PicoClaw is 20; raised so coding/fleet bots don't hit "no response to give") |
 
 These can be overridden per-instance via `set-secret`:
 ```bash
@@ -247,6 +247,12 @@ Create a named PicoClaw instance on the cluster. Creates the namespace automatic
 | `--linear-team-id` | from env | Linear team UUID (or `LINEAR_TEAM_ID` env) |
 | `--slack-bot-token` | from env | Slack bot token (or `SLACK_BOT_TOKEN` env) |
 | `--caldav` | none | CalDAV account (`name=url,user,pass`, repeatable) |
+| `--github-token` | from env | GitHub token injected as `GITHUB_TOKEN` + `GH_TOKEN` (or `GITHUB_TOKEN` env) |
+| `--shared-pvc` | none | Name of a shared PVC mounted at `/home/picoclaw/shared` (created if missing) |
+| `--shared-pvc-size` | `10Gi` | Size of the shared PVC when created |
+| `--fleet-admin` | `false` | Grant namespace-scoped RBAC so the instance can manage sibling instances via in-container `eclaw` |
+| `--playwright` | `false` | Enable the Playwright browser MCP server (headless chromium) |
+| `--identity` | none | Path to a custom `IDENTITY.md` file for the instance |
 
 Instance names must be valid DNS subdomain components: lowercase alphanumeric and hyphens, 3-63 chars.
 
@@ -367,6 +373,86 @@ Requires a [Gmail App Password](https://myaccount.google.com/apppasswords) (not 
 [Backlog.md](https://github.com/nickarella/backlog.md) is pre-installed in the container and automatically configured as an MCP server. PicoClaw can create, list, update, and manage tasks via `mcp_backlog_task_*` tools.
 
 No configuration needed — works out of the box with the workspace directory.
+
+### GitHub (coding agent)
+
+Pass `--github-token` (or set `GITHUB_TOKEN` in `.env`) to give the instance authenticated GitHub access. The token is stored in the instance Secret and injected as both `GITHUB_TOKEN` and `GH_TOKEN`. The container image ships with the `gh` CLI and a system-level git credential helper, so `git clone`/`git push` against `https://github.com/...` and all `gh` commands authenticate automatically.
+
+```bash
+eclaw deploy coder --provider openrouter --model deepseek/deepseek-v4-pro \
+  --github-token github_pat_xxx
+```
+
+### Playwright Browser
+
+Pass `--playwright` to enable browser automation. The image bundles `@playwright/mcp` and a headless chromium (with system dependencies); the MCP server runs with `--headless --browser chromium --no-sandbox` (the sandbox is unavailable for the non-root container user). PicoClaw gets `mcp_playwright_*` tools: navigate, click, fill, screenshot, etc.
+
+### Fleet Control
+
+Pass `--fleet-admin` to let an instance manage its sibling instances. This creates a ServiceAccount, Role, and RoleBinding (named `picoclaw-<name>-fleet`, namespace-scoped) covering every resource type eclaw touches, and mounts it into the pod. The `eclaw` binary is included in the container image and automatically uses the in-cluster ServiceAccount when no kubeconfig is present; `ECLAW_NAMESPACE` and `ECLAW_IMAGE` are injected so `eclaw deploy`/`list`/`logs`/`chat`/`delete` work out of the box inside the pod.
+
+```bash
+eclaw deploy overseer --provider openrouter --model deepseek/deepseek-v4-pro --fleet-admin
+# then, from inside the instance (e.g. via chat): "run: eclaw deploy worker-1 ..."
+```
+
+RBAC is cleaned up by `eclaw delete <name>`.
+
+### Shared Storage
+
+Pass `--shared-pvc <name>` to mount a fleet-wide PVC at `/home/picoclaw/shared` (`SHARED_DIR` env). The PVC is created on first use (`--shared-pvc-size`, default 10Gi) and is deliberately **not** deleted with any instance — it belongs to the fleet. Multiple instances can pass the same PVC name to share files.
+
+> **Note:** on clusters whose storage class only supports `ReadWriteOnce` (e.g. `local-path`), all pods sharing the PVC are co-scheduled onto the node holding the volume — this works transparently, but limits fleet placement to one node.
+
+### Web Control Interface
+
+Every instance serves a web control UI on its HTTP port (8080): a status view plus a chat interface backed by the same agent as gRPC and Telegram. Expose it with:
+
+```bash
+# Generate and set an access token (the API is disabled until this is set)
+eclaw set-secret my-agent CONTROL_TOKEN "$(openssl rand -hex 24)"
+
+# Expose via ingress with TLS
+eclaw expose my-agent --type ingress --host my-agent.example.com --tls --issuer letsencrypt-prod
+```
+
+Routes:
+
+| Path | Auth | Purpose |
+|------|------|---------|
+| `/` | none | Single-page control UI (enter the token in the page) |
+| `/health`, `/ready` | none | K8s probes |
+| `/api/status` | Bearer token | Instance status JSON (model, provider, uptime, ready) |
+| `/api/chat` | Bearer token | `POST {"message": "...", "session_id": "..."}` → agent response |
+
+The `/api/*` endpoints require `Authorization: Bearer <CONTROL_TOKEN>` and are **disabled (503) until `CONTROL_TOKEN` is set** — fail closed, since the agent has shell access. `eclaw expose` sets 900s nginx proxy timeouts so long tool-running chat requests don't get cut off. `eclaw unexpose <name>` removes the ingress and external service.
+
+### Fleet Dashboard (web control plane, mTLS-protected)
+
+For a full web UI over a whole namespace of bots — list/deploy/delete instances, chat with persistent history, stream logs, edit config — deploy the **fleet dashboard**, protected by mutual-TLS client certificates. This is the recommended way to run bots in Kubernetes with a shared interface.
+
+```bash
+# 1. Generate a CA + your browser client cert
+eclaw mtls init --client "$(whoami)" --out ./mtls
+
+# 2. Deploy the dashboard (namespace-scoped RBAC, ingress, mTLS, chat history)
+eclaw dashboard deploy --namespace myfleet \
+  --host fleet.example.com --issuer letsencrypt-prod \
+  --mtls-ca ./mtls/ca.crt --with-postgres
+
+# 3. Point DNS at the ingress, wait for the TLS cert, import ./mtls/client.p12
+```
+
+| Command | Description |
+|---------|-------------|
+| `eclaw mtls init` | Generate a CA + `client.p12` for nginx client-cert auth |
+| `eclaw dashboard deploy --host <> [--mtls-ca ca.crt] [--with-postgres] [--sidecar-image <>]` | Deploy/update the fleet dashboard |
+| `eclaw dashboard delete [--with-postgres]` | Remove the dashboard (Postgres PVC retained) |
+| `eclaw expose <name> --mtls-ca ca.crt` | Add client-cert auth to an instance's own ingress |
+
+The dashboard is namespace-scoped (least privilege) and deploys new instances using the image in its `SIDECAR_IMAGE` env (`--sidecar-image`). A bot deployed with `--fleet-admin` can run these same commands from inside its pod to manage siblings. **Full step-by-step playbook, including a bot spinning up more bots: [docs/fleet.md](docs/fleet.md).**
+
+> The dashboard exposes deploy/delete/secret operations — always protect it with `--mtls-ca` before exposing it publicly.
 
 ### Adding Custom Integrations
 

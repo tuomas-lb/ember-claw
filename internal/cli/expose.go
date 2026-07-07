@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/tuomas-lb/ember-claw/internal/k8s"
 	"github.com/fatih/color"
@@ -18,6 +19,7 @@ func newExposeCommand() *cobra.Command {
 		issuer     string
 		class      string
 		path       string
+		mtlsCA     string
 	)
 
 	cmd := &cobra.Command{
@@ -36,15 +38,25 @@ func newExposeCommand() *cobra.Command {
 				return fmt.Errorf("--host is required for ingress type")
 			}
 
+			var caPEM []byte
+			if mtlsCA != "" {
+				data, err := os.ReadFile(mtlsCA)
+				if err != nil {
+					return fmt.Errorf("read mtls ca: %w", err)
+				}
+				caPEM = data
+			}
+
 			opts := k8s.ExposeOptions{
-				Name:     name,
-				Type:     exposeType,
-				NodePort: nodePort,
-				Host:     host,
-				TLS:      tls,
-				Issuer:   issuer,
-				Class:    class,
-				Path:     path,
+				Name:      name,
+				Type:      exposeType,
+				NodePort:  nodePort,
+				Host:      host,
+				TLS:       tls,
+				Issuer:    issuer,
+				Class:     class,
+				Path:      path,
+				MTLSCAPEM: caPEM,
 			}
 
 			result, err := k8sClient.ExposeInstance(context.Background(), opts)
@@ -70,6 +82,7 @@ func newExposeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&issuer, "issuer", "letsencrypt-prod", "cert-manager ClusterIssuer name")
 	cmd.Flags().StringVar(&class, "class", "nginx", "Ingress class")
 	cmd.Flags().StringVar(&path, "path", "/", "URL path prefix")
+	cmd.Flags().StringVar(&mtlsCA, "mtls-ca", "", "Path to a CA cert (ca.crt) to require client-certificate auth on the ingress (from 'eclaw mtls init')")
 
 	_ = cmd.MarkFlagRequired("type")
 

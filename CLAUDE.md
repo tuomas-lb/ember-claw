@@ -6,7 +6,7 @@ EmberClaw (`eclaw`) is a Go CLI tool for deploying and managing PicoClaw AI assi
 
 ## Stack
 
-- **Language:** Go 1.25
+- **Language:** Go 1.26.4
 - **CLI framework:** cobra + fatih/color
 - **Kubernetes:** client-go (in-process, no kubectl dependency)
 - **gRPC:** protobuf-generated client/server for chat
@@ -26,8 +26,21 @@ EmberClaw (`eclaw`) is a Go CLI tool for deploying and managing PicoClaw AI assi
 | `internal/server/` | gRPC server implementation |
 | `internal/grpcclient/` | gRPC client for chat |
 | `internal/tools/` | Linear, Slack tool integrations |
-| `docs/` | Deployment guide, architecture, tool development |
+| `docs/` | Deployment guide, architecture, tool development, **fleet guide** |
+| `dashboard/` | Vendored fleet dashboard: Go (chi + k8s + gRPC) backend serving an embedded React/Vite SPA; own nested go.mod. Built by `images/dashboard/Dockerfile`. |
+| `internal/mtls/` | CA + client-cert (PKCS#12) generation for mTLS-protected interfaces |
+| `internal/stream/` | Provider wrapper + context sink that surfaces the agent's reasoning/tool-call steps live over the gRPC `Chat` stream (dashboard chat "processing" view) |
 | `assets/brand/` | Logo and brand assets |
+
+## Fleet / dashboard / mTLS
+
+`eclaw` provisions the whole "bot in k8s, mTLS-protected, with a web dashboard" flow — see [docs/fleet.md](docs/fleet.md), the canonical playbook.
+
+- `eclaw mtls init` — generate a CA + `client.p12` (crypto/x509 + go-pkcs12) for nginx client-cert auth. Local operation (no cluster; skips k8s client via the `skipClient` annotation).
+- `eclaw dashboard deploy --host <> [--mtls-ca ca.crt] [--with-postgres]` — deploy the namespace-scoped dashboard (SA+Role+RoleBinding, Deployment, Service, Ingress; optional mTLS CA secret + Postgres for chat history). `eclaw dashboard delete`. Logic in `internal/k8s/dashboard.go`.
+- `eclaw expose --mtls-ca ca.crt` — add client-cert auth to an instance's own ingress.
+- The dashboard deploys new instances with the image from its `SIDECAR_IMAGE` env (set by `--sidecar-image`); it is **not** tied to any registry.
+- A `--fleet-admin` instance runs `eclaw` in-cluster and can self-replicate within its namespace; the default AGENTS.md includes a "Fleet Operations" playbook.
 
 ## Rules
 
@@ -54,9 +67,11 @@ Never leave anything undocumented. If you add a flag, document it. If you add an
 ### Container Image
 
 - Base: `debian:bookworm-slim` (glibc needed for bun/backlog.md)
-- Pre-installed: curl, jq, git, python3, nodejs, go, bun, gcloud, aws, az
+- Pre-installed: curl, jq, git, gh, python3, nodejs, go, bun, gcloud, aws, az
 - Pre-installed Python packages: requests, beautifulsoup4, pyyaml
-- Pre-installed npm packages: backlog.md, caldav-mcp
+- Pre-installed npm packages: backlog.md, caldav-mcp, @playwright/mcp (+ headless chromium at `/opt/playwright-browsers`)
+- Bundled binaries: `sidecar` (entrypoint) and `eclaw` (fleet control, uses in-cluster ServiceAccount)
+- System git credential helper authenticates `https://github.com` from `GITHUB_TOKEN` env
 - `PIP_USER=1` + `PYTHONUSERBASE` on PVC for persistent pip packages
 - `PIP_BREAK_SYSTEM_PACKAGES=1` for system-level pip access
 
@@ -65,7 +80,7 @@ Never leave anything undocumented. If you add a flag, document it. If you add an
 Generated config.json sets container-optimized defaults:
 - `restrict_to_workspace: false`
 - `allow_read_outside_workspace: true`
-- `max_tool_iterations: 50`
+- `max_tool_iterations: 200` (PicoClaw default is 20; container coding/fleet bots need more or they hit "no response to give")
 - `enable_deny_patterns: false` (safety guard off in container)
 - `allow_remote: true`
 
@@ -76,14 +91,32 @@ Generated config.json sets container-optimized defaults:
 | `backlog` | backlog.md | Task management | Always enabled, uses workspace dir |
 | `calendar-*` | caldav-mcp | CalDAV calendars | Via `--caldav` flag or `CALDAV_*` env vars |
 | `gmail` | gmail-mcp (local) | IMAP email access | Via `eclaw set-gmail` command |
+| `playwright` | @playwright/mcp | Headless browser automation | Via `--playwright` deploy flag |
+
+### Web Control Interface
+
+- Sidecar serves a control UI at `/` on port 8080 (status + chat) alongside `/health`/`/ready`
+- `/api/status` + `/api/chat` require `Authorization: Bearer $CONTROL_TOKEN`; disabled (503) when the env var is unset
+- Set the token with `eclaw set-secret <name> CONTROL_TOKEN <token>`; expose with `eclaw expose <name> --type ingress --host ... --tls`
+- Channel-manager webhook server is not started (port 8080 collision; Telegram long-polls)
+
+### Fleet & Storage Features
+
+- `--fleet-admin` creates ServiceAccount/Role/RoleBinding `picoclaw-<name>-fleet` (namespace-scoped) and injects `ECLAW_NAMESPACE`/`ECLAW_IMAGE` so the in-container `eclaw` binary can manage sibling instances; cleaned up on delete
+- `--shared-pvc <name>` mounts a fleet-shared PVC at `/home/picoclaw/shared` (`SHARED_DIR` env); created on demand, never deleted with an instance
+- `--github-token` injects `GITHUB_TOKEN` + `GH_TOKEN` into the instance Secret
 
 ### Build & Deploy
 
 ```bash
 make build-eclaw                              # Build CLI
-make build-push-picoclaw EMBER_VERSION=0.1    # Build + push container image
+make build-push-picoclaw EMBER_VERSION=0.1    # Build + push sidecar image
+make build-push-dashboard EMBER_VERSION=0.1   # Build + push fleet dashboard image
 eclaw deploy my-agent --provider gemini --model gemini-2.5-flash
 ```
+
+The dashboard has a nested Go module (`dashboard/go.mod`) — the root `go build ./...`
+does not include it; build it via its Dockerfile or `cd dashboard && go build ./...`.
 
 Without `EMBER_VERSION`, image is tagged `:latest` only. With it, tagged as `<version>.<build>` AND `:latest`.
 

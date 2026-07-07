@@ -1,5 +1,5 @@
 # Stage 1: Build sidecar binary
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git
 
@@ -13,6 +13,10 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-w -s" -o /sidecar ./cmd/sidecar
+
+# Build the eclaw CLI for in-container fleet control (uses in-cluster ServiceAccount).
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-w -s" -o /eclaw ./cmd/eclaw
 
 # Stage 2: Runtime with development tools (Debian for glibc compatibility with bun/backlog.md)
 FROM debian:bookworm-slim
@@ -42,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go
-RUN curl -fsSL https://go.dev/dl/go1.24.1.linux-amd64.tar.gz | tar -C /usr/local -xz
+RUN curl -fsSL https://go.dev/dl/go1.26.4.linux-amd64.tar.gz | tar -C /usr/local -xz
 
 # Install Bun
 RUN curl -fsSL https://bun.sh/install | bash && \
@@ -54,6 +58,18 @@ RUN groupadd -g 1000 picoclaw && \
     useradd -u 1000 -g picoclaw -m -d /home/picoclaw -s /bin/bash picoclaw
 
 COPY --from=builder /sidecar /usr/local/bin/sidecar
+COPY --from=builder /eclaw /usr/local/bin/eclaw
+
+# GitHub CLI (gh) for coding-agent workflows
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
+    apt-get update && apt-get install -y --no-install-recommends gh && \
+    rm -rf /var/lib/apt/lists/*
+
+# System-level git credential helper: when GITHUB_TOKEN is set in the environment,
+# https github.com clones/pushes authenticate automatically (no per-repo setup).
+RUN git config --system credential."https://github.com".helper \
+    '!f() { echo "username=x-access-token"; echo "password=${GITHUB_TOKEN}"; }; f'
 
 # Allow pip install without virtual env (safe in container)
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
@@ -63,6 +79,17 @@ RUN pip install --no-cache-dir --break-system-packages requests beautifulsoup4 p
 
 # Install MCP tools (used by PicoClaw as MCP servers)
 RUN npm install -g backlog.md caldav-mcp
+
+# Playwright MCP server + headless chromium. The playwright CLI version is pinned to
+# the playwright-core version bundled with @playwright/mcp so browser build numbers match.
+# Browsers path is world-readable so the non-root picoclaw user can launch chromium
+# (sandbox disabled via --no-sandbox in the MCP server args at runtime).
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN npm install -g @playwright/mcp && \
+    PW_VERSION=$(node -p "require('$(npm root -g)/@playwright/mcp/node_modules/playwright-core/package.json').version") && \
+    npm install -g playwright@"$PW_VERSION" && \
+    playwright install --with-deps chromium && \
+    chmod -R a+rX /opt/playwright-browsers
 
 # Install Gmail MCP server from local source
 COPY tools/gmail-mcp /tmp/gmail-mcp

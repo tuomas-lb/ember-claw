@@ -12,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,6 +24,10 @@ const (
 	DefaultStorageSize = "1Gi"
 	// MountPath is the path where the PVC is mounted in the container.
 	MountPath = "/home/picoclaw/.picoclaw"
+	// SharedMountPath is the path where the optional shared PVC is mounted.
+	SharedMountPath = "/home/picoclaw/shared"
+	// DefaultSharedPVCSize is the default size for a shared PVC created on demand.
+	DefaultSharedPVCSize = "10Gi"
 	// DefaultServiceName is the sidecar image name (without registry prefix).
 	DefaultServiceName = "ember-claw-sidecar"
 	// DefaultImageTag is the default image tag.
@@ -41,24 +46,29 @@ type CalDAVAccount struct {
 
 // DeployOptions contains all configuration for deploying a PicoClaw instance.
 type DeployOptions struct {
-	Name          string            // Instance name (resources are prefixed with picoclaw-{name})
-	Provider      string            // AI provider (anthropic, openai, etc.)
-	APIKey        string            // Provider API key
-	Model         string            // Model name
-	Image         string            // Container image (resolved from IMAGE_REGISTRY or ECLAW_IMAGE)
-	CPURequest    string            // e.g., "100m"
-	CPULimit      string            // e.g., "500m"
-	MemoryRequest string            // e.g., "128Mi"
-	MemoryLimit   string            // e.g., "512Mi"
-	StorageSize   string            // PVC size (default: "1Gi")
-	StorageClass  string            // Optional storage class name
-	CustomEnv     map[string]string // Additional env vars
-	LinearAPIKey   string            // Linear API key (optional)
-	LinearTeamID   string            // Linear team UUID (optional)
-	SlackBotToken  string            // Slack bot token (optional)
-	CalDAVAccounts []CalDAVAccount   // CalDAV calendar accounts (optional)
+	Name           string                     // Instance name (resources are prefixed with picoclaw-{name})
+	Provider       string                     // AI provider (anthropic, openai, etc.)
+	APIKey         string                     // Provider API key
+	Model          string                     // Model name
+	Image          string                     // Container image (resolved from IMAGE_REGISTRY or ECLAW_IMAGE)
+	CPURequest     string                     // e.g., "100m"
+	CPULimit       string                     // e.g., "500m"
+	MemoryRequest  string                     // e.g., "128Mi"
+	MemoryLimit    string                     // e.g., "512Mi"
+	StorageSize    string                     // PVC size (default: "1Gi")
+	StorageClass   string                     // Optional storage class name
+	CustomEnv      map[string]string          // Additional env vars
+	LinearAPIKey   string                     // Linear API key (optional)
+	LinearTeamID   string                     // Linear team UUID (optional)
+	SlackBotToken  string                     // Slack bot token (optional)
+	CalDAVAccounts []CalDAVAccount            // CalDAV calendar accounts (optional)
 	MCPServers     map[string]mcpServerConfig // Additional MCP servers to include
-	Identity       string            // Custom IDENTITY.md content (optional, uses default if empty)
+	Identity       string                     // Custom IDENTITY.md content (optional, uses default if empty)
+	GitHubToken    string                     // GitHub token, injected as GITHUB_TOKEN + GH_TOKEN (optional)
+	SharedPVC      string                     // Name of a shared PVC mounted at SharedMountPath, created if missing (optional)
+	SharedPVCSize  string                     // Size of the shared PVC when created (default: DefaultSharedPVCSize)
+	FleetAdmin     bool                       // Grant the instance RBAC to manage sibling instances (fleet control)
+	Playwright     bool                       // Enable the Playwright browser MCP server
 }
 
 // picoClawConfig is the subset of PicoClaw's config.json we generate for deployment.
@@ -69,7 +79,7 @@ type picoClawConfig struct {
 			ModelName           string `json:"model_name"`
 			Workspace           string `json:"workspace"`
 			RestrictToWorkspace bool   `json:"restrict_to_workspace"`
-			AllowReadOutsideWS bool   `json:"allow_read_outside_workspace"`
+			AllowReadOutsideWS  bool   `json:"allow_read_outside_workspace"`
 			MaxToolIterations   int    `json:"max_tool_iterations"`
 		} `json:"defaults"`
 	} `json:"agents"`
@@ -151,7 +161,10 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 	cfg.Agents.Defaults.Workspace = MountPath + "/workspace"
 	cfg.Agents.Defaults.RestrictToWorkspace = false
 	cfg.Agents.Defaults.AllowReadOutsideWS = true
-	cfg.Agents.Defaults.MaxToolIterations = 50
+	// Container agents (esp. coding/fleet bots with playwright + many MCP tools)
+	// routinely exceed PicoClaw's default 20 and the old 50, hitting the
+	// "no response to give" fallback. 200 gives ample headroom.
+	cfg.Agents.Defaults.MaxToolIterations = 200
 	// Disable command deny patterns — safe in isolated container.
 	cfg.Tools.Exec.EnableDenyPatterns = false
 	cfg.Tools.Exec.AllowRemote = true
@@ -216,6 +229,17 @@ func buildPicoClawConfig(opts DeployOptions) picoClawConfig {
 				"CALDAV_USERNAME": acct.Username,
 				"CALDAV_PASSWORD": acct.Password,
 			},
+		}
+	}
+
+	// Playwright browser automation (binary + chromium baked into the container image).
+	// --no-sandbox is required: the container runs as a non-root user without user namespaces.
+	if opts.Playwright {
+		servers["playwright"] = mcpServerConfig{
+			Enabled: true,
+			Type:    "stdio",
+			Command: "playwright-mcp",
+			Args:    []string{"--headless", "--browser", "chromium", "--no-sandbox"},
 		}
 	}
 
@@ -314,6 +338,29 @@ func defaultAgentsInstructions() string {
 - Show don't tell — run the command, show the output
 - One-sentence error reports, not paragraphs of apology
 - Skip "I'd be happy to" and "Sure!" — just do the thing
+
+## Fleet Operations (spinning up more bots)
+
+If you were deployed with fleet-admin rights, the ` + "`eclaw`" + ` CLI is installed and
+authenticated to this cluster via your in-pod ServiceAccount (namespace-scoped —
+you can only manage instances in your OWN namespace). ECLAW_NAMESPACE and
+ECLAW_IMAGE are set for you. Check with: ` + "`eclaw list`" + `.
+
+To create a new bot like yourself:
+  eclaw deploy <name> --provider <p> --model <m> \
+    --shared-pvc <fleet-pvc> --fleet-admin --playwright
+The new bot shares your fleet storage (mount the same --shared-pvc) and, with
+--fleet-admin, can itself manage siblings. Kubernetes forbids privilege
+escalation, so a bot can only grant rights it already holds.
+
+To give the fleet a web control plane + mTLS-protected UI like the one humans use:
+  eclaw mtls init --client <you> --out /tmp/mtls        # CA + client.p12
+  eclaw dashboard deploy --host <dns-name> --mtls-ca /tmp/mtls/ca.crt --with-postgres
+Then a human points DNS at the ingress and imports client.p12 to reach it.
+
+Manage the fleet: eclaw status/logs/chat/restart/delete <name>. Full playbook:
+docs/fleet.md in the ember-claw repo. Never deploy outside your namespace or
+hand out credentials you were not explicitly told to share.
 `
 }
 
@@ -431,6 +478,11 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 	if opts.SlackBotToken != "" {
 		secretData["SLACK_BOT_TOKEN"] = opts.SlackBotToken
 	}
+	if opts.GitHubToken != "" {
+		// GITHUB_TOKEN feeds the system git credential helper; GH_TOKEN feeds the gh CLI.
+		secretData["GITHUB_TOKEN"] = opts.GitHubToken
+		secretData["GH_TOKEN"] = opts.GitHubToken
+	}
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -523,6 +575,48 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 		return fmt.Errorf("create pvc: %w", err)
 	}
 
+	// 3b. Create the shared PVC if requested and missing. The shared PVC is intentionally
+	// NOT labeled with instance labels: it outlives any single instance and is shared
+	// across the fleet, so instance deletion must not remove it.
+	if opts.SharedPVC != "" {
+		sharedSize := opts.SharedPVCSize
+		if sharedSize == "" {
+			sharedSize = DefaultSharedPVCSize
+		}
+		sharedSpec := corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse(sharedSize),
+				},
+			},
+		}
+		if opts.StorageClass != "" {
+			sharedSpec.StorageClassName = &opts.StorageClass
+		}
+		sharedPVC := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      opts.SharedPVC,
+				Namespace: c.namespace,
+				Labels: map[string]string{
+					LabelManagedBy: ManagedByValue,
+					LabelComponent: "shared-storage",
+				},
+			},
+			Spec: sharedSpec,
+		}
+		if _, err := c.cs.CoreV1().PersistentVolumeClaims(c.namespace).Create(ctx, sharedPVC, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
+			return fmt.Errorf("create shared pvc: %w", err)
+		}
+	}
+
+	// 3c. Create fleet-admin RBAC (ServiceAccount + Role + RoleBinding) if requested.
+	if opts.FleetAdmin {
+		if err := c.ensureFleetRBAC(ctx, opts.Name); err != nil {
+			return fmt.Errorf("ensure fleet rbac: %w", err)
+		}
+	}
+
 	// 4. Build resource requirements (CONF-03).
 	resourceReqs := corev1.ResourceRequirements{}
 	if opts.CPURequest != "" || opts.MemoryRequest != "" {
@@ -553,6 +647,90 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 		}
 	}
 
+	containerEnv := []corev1.EnvVar{
+		{
+			Name:  "PICOCLAW_CONFIG",
+			Value: "/config/config.json",
+		},
+		{
+			Name:  "PICOCLAW_HOME",
+			Value: MountPath,
+		},
+	}
+	containerMounts := []corev1.VolumeMount{
+		{
+			Name:      "data",
+			MountPath: MountPath,
+		},
+		{
+			Name:      "config",
+			MountPath: "/config",
+			ReadOnly:  true,
+		},
+	}
+	podVolumes := []corev1.Volume{
+		{
+			Name: "data",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: pvcName,
+				},
+			},
+		},
+		{
+			Name: "config",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: configSecretName,
+					Items: []corev1.KeyToPath{
+						{Key: "config.json", Path: "config.json"},
+					},
+				},
+			},
+		},
+		{
+			Name: "bootstrap",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: bootstrapCMName,
+					},
+				},
+			},
+		},
+	}
+
+	if opts.SharedPVC != "" {
+		podVolumes = append(podVolumes, corev1.Volume{
+			Name: "shared",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: opts.SharedPVC,
+				},
+			},
+		})
+		containerMounts = append(containerMounts, corev1.VolumeMount{
+			Name:      "shared",
+			MountPath: SharedMountPath,
+		})
+		containerEnv = append(containerEnv, corev1.EnvVar{
+			Name:  "SHARED_DIR",
+			Value: SharedMountPath,
+		})
+	}
+
+	serviceAccountName := ""
+	if opts.FleetAdmin {
+		serviceAccountName = fleetServiceAccountName(opts.Name)
+		// eclaw inside the pod uses the in-cluster ServiceAccount automatically
+		// (client-go falls back to in-cluster config when no kubeconfig is present).
+		// These env vars let it resolve namespace and image without a .env file.
+		containerEnv = append(containerEnv,
+			corev1.EnvVar{Name: "ECLAW_NAMESPACE", Value: c.namespace},
+			corev1.EnvVar{Name: "ECLAW_IMAGE", Value: opts.Image},
+		)
+	}
+
 	replicas := int32(1)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -570,7 +748,8 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 					Labels: instanceLabels,
 				},
 				Spec: corev1.PodSpec{
-					ImagePullSecrets: imagePullSecrets,
+					ServiceAccountName: serviceAccountName,
+					ImagePullSecrets:   imagePullSecrets,
 					// Init container: copy bootstrap files to workspace (only if not already present).
 					InitContainers: []corev1.Container{
 						{
@@ -592,6 +771,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 									echo "Persistent memory across sessions." >> /workspace/workspace/memory/MEMORY.md
 									echo "Installed memory/MEMORY.md"
 								fi
+								chown -R 1000:1000 /workspace/workspace
 							`},
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "data", MountPath: "/workspace"},
@@ -623,28 +803,9 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 									},
 								},
 							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "PICOCLAW_CONFIG",
-									Value: "/config/config.json",
-								},
-								{
-									Name:  "PICOCLAW_HOME",
-									Value: MountPath,
-								},
-							},
-							Resources: resourceReqs,
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "data",
-									MountPath: MountPath,
-								},
-								{
-									Name:      "config",
-									MountPath: "/config",
-									ReadOnly:  true,
-								},
-							},
+							Env:          containerEnv,
+							Resources:    resourceReqs,
+							VolumeMounts: containerMounts,
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
@@ -667,37 +828,7 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 							},
 						},
 					},
-					Volumes: []corev1.Volume{
-						{
-							Name: "data",
-							VolumeSource: corev1.VolumeSource{
-								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-									ClaimName: pvcName,
-								},
-							},
-						},
-						{
-							Name: "config",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: configSecretName,
-									Items: []corev1.KeyToPath{
-										{Key: "config.json", Path: "config.json"},
-									},
-								},
-							},
-						},
-						{
-							Name: "bootstrap",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: bootstrapCMName,
-									},
-								},
-							},
-						},
-					},
+					Volumes: podVolumes,
 				},
 			},
 		},
@@ -727,6 +858,104 @@ func (c *Client) DeployInstance(ctx context.Context, opts DeployOptions) error {
 	}
 	if _, err := c.cs.CoreV1().Services(c.namespace).Create(ctx, svc, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create service: %w", err)
+	}
+
+	return nil
+}
+
+// fleetServiceAccountName builds the ServiceAccount name for a fleet-admin instance.
+func fleetServiceAccountName(name string) string {
+	return resourceName(name) + "-fleet"
+}
+
+// ensureFleetRBAC creates (or updates) the ServiceAccount, Role, and RoleBinding
+// that let a fleet-admin instance run eclaw in-cluster to manage sibling instances
+// in the same namespace. The Role covers every resource type eclaw touches:
+// deployments, services, secrets, configmaps, PVCs, pods (incl. log/portforward
+// subresources for `eclaw logs` and `eclaw chat`), and ingresses (for `eclaw expose`).
+func (c *Client) ensureFleetRBAC(ctx context.Context, name string) error {
+	rbacName := fleetServiceAccountName(name)
+	instanceLabels := InstanceLabels(name)
+
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rbacName,
+			Namespace: c.namespace,
+			Labels:    instanceLabels,
+		},
+	}
+	if _, err := c.cs.CoreV1().ServiceAccounts(c.namespace).Create(ctx, sa, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create serviceaccount: %w", err)
+	}
+
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rbacName,
+			Namespace: c.namespace,
+			Labels:    instanceLabels,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"services", "secrets", "configmaps", "persistentvolumeclaims", "serviceaccounts", "pods"},
+				Verbs:     []string{"get", "list", "watch", "create", "update", "patch", "delete"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods/log"},
+				Verbs:     []string{"get", "list"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods/portforward"},
+				Verbs:     []string{"create"},
+			},
+			{
+				APIGroups: []string{"apps"},
+				Resources: []string{"deployments"},
+				Verbs:     []string{"get", "list", "watch", "create", "update", "patch", "delete"},
+			},
+			{
+				APIGroups: []string{"networking.k8s.io"},
+				Resources: []string{"ingresses"},
+				Verbs:     []string{"get", "list", "watch", "create", "update", "patch", "delete"},
+			},
+			{
+				APIGroups: []string{"rbac.authorization.k8s.io"},
+				Resources: []string{"roles", "rolebindings"},
+				Verbs:     []string{"get", "list", "create", "update", "patch", "delete"},
+			},
+		},
+	}
+	if _, err := c.cs.RbacV1().Roles(c.namespace).Create(ctx, role, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+		if _, err := c.cs.RbacV1().Roles(c.namespace).Update(ctx, role, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update role: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("create role: %w", err)
+	}
+
+	binding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rbacName,
+			Namespace: c.namespace,
+			Labels:    instanceLabels,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      rbacv1.ServiceAccountKind,
+				Name:      rbacName,
+				Namespace: c.namespace,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "Role",
+			Name:     rbacName,
+		},
+	}
+	if _, err := c.cs.RbacV1().RoleBindings(c.namespace).Create(ctx, binding, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create rolebinding: %w", err)
 	}
 
 	return nil
@@ -860,6 +1089,18 @@ func (c *Client) DeleteInstance(ctx context.Context, name string) error {
 		if err := c.cs.CoreV1().ConfigMaps(c.namespace).Delete(ctx, cm.Name, deleteOpts); err != nil {
 			return fmt.Errorf("delete configmap %s: %w", cm.Name, err)
 		}
+	}
+
+	// Delete fleet-admin RBAC resources if they exist (created with --fleet-admin).
+	rbacName := fleetServiceAccountName(name)
+	if err := c.cs.RbacV1().RoleBindings(c.namespace).Delete(ctx, rbacName, deleteOpts); err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("delete rolebinding %s: %w", rbacName, err)
+	}
+	if err := c.cs.RbacV1().Roles(c.namespace).Delete(ctx, rbacName, deleteOpts); err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("delete role %s: %w", rbacName, err)
+	}
+	if err := c.cs.CoreV1().ServiceAccounts(c.namespace).Delete(ctx, rbacName, deleteOpts); err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("delete serviceaccount %s: %w", rbacName, err)
 	}
 
 	return nil
@@ -1173,14 +1414,15 @@ func (c *Client) hasRegistrySecret(ctx context.Context) bool {
 
 // ExposeOptions contains configuration for exposing an instance externally.
 type ExposeOptions struct {
-	Name     string // Instance name
-	Type     string // "nodeport", "loadbalancer", or "ingress"
-	NodePort int32  // Optional specific NodePort number (only for nodeport type)
-	Host     string // Hostname for ingress (required for ingress type)
-	TLS      bool   // Enable TLS via cert-manager (only for ingress)
-	Issuer   string // cert-manager ClusterIssuer name (default: letsencrypt-prod)
-	Class    string // Ingress class (default: nginx)
-	Path     string // URL path prefix (default: /)
+	Name      string // Instance name
+	Type      string // "nodeport", "loadbalancer", or "ingress"
+	NodePort  int32  // Optional specific NodePort number (only for nodeport type)
+	Host      string // Hostname for ingress (required for ingress type)
+	TLS       bool   // Enable TLS via cert-manager (only for ingress)
+	Issuer    string // cert-manager ClusterIssuer name (default: letsencrypt-prod)
+	Class     string // Ingress class (default: nginx)
+	Path      string // URL path prefix (default: /)
+	MTLSCAPEM []byte // Optional CA cert PEM; when set, ingress requires client-cert auth
 }
 
 // ExposeResult holds the result of exposing an instance.
@@ -1264,10 +1506,15 @@ func (c *Client) ExposeInstance(ctx context.Context, opts ExposeOptions) (*Expos
 		pathType := networkingv1.PathTypePrefix
 		ingress := &networkingv1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        baseName,
-				Namespace:   c.namespace,
-				Labels:      instanceLabels,
-				Annotations: map[string]string{},
+				Name:      baseName,
+				Namespace: c.namespace,
+				Labels:    instanceLabels,
+				Annotations: map[string]string{
+					// Chat requests block while the agent runs tool loops —
+					// extend nginx proxy timeouts well past the 60s default.
+					"nginx.ingress.kubernetes.io/proxy-read-timeout": "900",
+					"nginx.ingress.kubernetes.io/proxy-send-timeout": "900",
+				},
 			},
 			Spec: networkingv1.IngressSpec{
 				IngressClassName: &opts.Class,
@@ -1295,6 +1542,26 @@ func (c *Client) ExposeInstance(ctx context.Context, opts ExposeOptions) (*Expos
 					},
 				},
 			},
+		}
+
+		// Optional mTLS client-certificate auth: store the CA cert in a secret
+		// and point the nginx auth-tls annotations at it.
+		if len(opts.MTLSCAPEM) > 0 {
+			caSecret := baseName + "-mtls-ca"
+			s := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: caSecret, Namespace: c.namespace, Labels: instanceLabels},
+				Data:       map[string][]byte{"ca.crt": opts.MTLSCAPEM},
+			}
+			if _, err := c.cs.CoreV1().Secrets(c.namespace).Create(ctx, s, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+				if _, err := c.cs.CoreV1().Secrets(c.namespace).Update(ctx, s, metav1.UpdateOptions{}); err != nil {
+					return nil, fmt.Errorf("update mtls ca secret: %w", err)
+				}
+			} else if err != nil {
+				return nil, fmt.Errorf("create mtls ca secret: %w", err)
+			}
+			ingress.Annotations["nginx.ingress.kubernetes.io/auth-tls-secret"] = c.namespace + "/" + caSecret
+			ingress.Annotations["nginx.ingress.kubernetes.io/auth-tls-verify-client"] = "on"
+			ingress.Annotations["nginx.ingress.kubernetes.io/auth-tls-verify-depth"] = "1"
 		}
 
 		if opts.TLS {
@@ -1364,4 +1631,3 @@ func (c *Client) UnexposeInstance(ctx context.Context, name string) error {
 
 	return nil
 }
-

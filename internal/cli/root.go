@@ -37,6 +37,13 @@ func NewRootCommand() *cobra.Command {
 			case "help", "completion", "models", "kubeconfig":
 				return nil
 			}
+			// Also skip when the command (or an ancestor) opts out via annotation
+			// — e.g. `eclaw mtls init` is a local crypto operation.
+			for c := cmd; c != nil; c = c.Parent() {
+				if c.Annotations["skipClient"] == "true" {
+					return nil
+				}
+			}
 			var err error
 			k8sClient, err = k8s.NewClient(kubeconfig, namespace)
 			return err
@@ -64,6 +71,8 @@ func NewRootCommand() *cobra.Command {
 		newSetCalDAVCommand(),
 		newSetGmailCommand(),
 		newKubeconfigCommand(),
+		newMTLSCommand(),
+		newDashboardCommand(),
 	)
 
 	return root
