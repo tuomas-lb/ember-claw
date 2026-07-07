@@ -129,8 +129,8 @@ export interface StoredMessage {
   id: number;
   instance: string;
   session_id: string;
-  role: 'user' | 'agent';
-  content: string;
+  role: 'user' | 'agent' | 'thinking';
+  content: string; // for role 'thinking', a JSON-encoded ChatStep[]
   created_at: string;
 }
 

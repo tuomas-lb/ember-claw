@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -12,6 +13,26 @@ import (
 	emberclaw "github.com/tuomas-lb/ember-claw/gen/emberclaw/v1"
 	"github.com/tuomas-lb/ember-claw/internal/stream"
 )
+
+// noResponseFallbackMarker is a stable substring of PicoClaw's fallback message
+// ("I've completed processing but have no response to give. Increase
+// `max_tool_iterations`..."). PicoClaw returns it when the agent loop ends with
+// empty final content — which also happens when the model puts its answer in
+// the Reasoning field and leaves Content empty (PicoClaw only falls back to
+// ReasoningContent, not Reasoning). We recover the model's actual output in
+// that case rather than surfacing the dead-end message.
+const noResponseFallbackMarker = "have no response to give"
+
+// recoverEmptyResponse substitutes the recorded model output when PicoClaw
+// returns its empty-response fallback.
+func recoverEmptyResponse(text string, rec *stream.Recorder) string {
+	if rec != nil && strings.Contains(text, noResponseFallbackMarker) {
+		if alt := strings.TrimSpace(rec.Best()); alt != "" {
+			return alt
+		}
+	}
+	return text
+}
 
 // Server implements the PicoClawServiceServer gRPC interface.
 // It wraps an AgentProcessor (production: *agent.AgentLoop; tests: mockProcessor).
@@ -88,13 +109,14 @@ func (s *Server) Chat(stream emberclaw.PicoClawService_ChatServer) error {
 // blocking the agent (they are best-effort UI hints, not the answer).
 func (s *Server) processStreaming(srv emberclaw.PicoClawService_ChatServer, message, sessionKey string) error {
 	steps := make(chan stream.Step, 64)
+	rec := &stream.Recorder{}
 	// Always use stream.Context() so cancellation propagates (Pitfall 4).
-	ctx := stream.WithSink(srv.Context(), func(st stream.Step) {
+	ctx := stream.WithRecorder(stream.WithSink(srv.Context(), func(st stream.Step) {
 		select {
 		case steps <- st:
 		default: // buffer full — drop this step
 		}
-	})
+	}), rec)
 
 	type result struct {
 		text string
@@ -136,7 +158,7 @@ func (s *Server) processStreaming(srv emberclaw.PicoClawService_ChatServer, mess
 			if res.err != nil {
 				return status.Errorf(codes.Internal, "agent error: %v", res.err)
 			}
-			return srv.Send(&emberclaw.ChatResponse{Text: res.text, Done: true})
+			return srv.Send(&emberclaw.ChatResponse{Text: recoverEmptyResponse(res.text, rec), Done: true})
 		}
 	}
 }
@@ -149,11 +171,12 @@ func (s *Server) processStreaming(srv emberclaw.PicoClawService_ChatServer, mess
 func (s *Server) Query(ctx context.Context, req *emberclaw.QueryRequest) (*emberclaw.QueryResponse, error) {
 	sessionKey := assignSessionKey(req.SessionKey, "query")
 
-	response, err := s.agent.ProcessDirect(ctx, req.Message, sessionKey)
+	rec := &stream.Recorder{}
+	response, err := s.agent.ProcessDirect(stream.WithRecorder(ctx, rec), req.Message, sessionKey)
 	if err != nil {
 		return &emberclaw.QueryResponse{Error: err.Error()}, nil
 	}
-	return &emberclaw.QueryResponse{Text: response}, nil
+	return &emberclaw.QueryResponse{Text: recoverEmptyResponse(response, rec)}, nil
 }
 
 // Status implements the unary Status RPC.

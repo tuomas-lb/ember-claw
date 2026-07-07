@@ -20,9 +20,10 @@ function stableSessionKey(instanceName: string): string {
 
 interface MsgEntry {
   id: number;
-  role: 'user' | 'agent';
+  role: 'user' | 'agent' | 'thinking';
   text: string;
   streaming?: boolean;
+  steps?: ChatStep[]; // set when role === 'thinking'
 }
 
 type WsState = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -41,6 +42,9 @@ export default function ChatPanel({ instanceName }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unmounted = useRef(false);
+  // Source of truth for the current turn's steps (read at 'done' to commit a
+  // persisted-style thinking block); mirrored to `steps` state for live render.
+  const liveSteps = useRef<ChatStep[]>([]);
 
   const appendAgentChunk = useCallback((text: string, done: boolean) => {
     setMessages(prev => {
@@ -78,17 +82,31 @@ export default function ChatPanel({ instanceName }: Props) {
         const msg = JSON.parse(e.data as string) as ChatMessage;
         // Intermediate processing step (reasoning / tool call) — show live.
         if (msg.step) {
-          setSteps(prev => [...prev, msg.step as ChatStep]);
+          liveSteps.current = [...liveSteps.current, msg.step as ChatStep];
+          setSteps(liveSteps.current);
           return;
         }
+        // On a terminal frame (answer or error), commit the accumulated steps
+        // as a persisted-style thinking block, then the answer — so the live
+        // view matches what a reload shows.
+        const commitThinking = () => {
+          if (liveSteps.current.length) {
+            const committed = liveSteps.current;
+            setMessages(prev => [...prev, { id: ++_msgId, role: 'thinking', text: '', steps: committed }]);
+          }
+          liveSteps.current = [];
+          setSteps([]);
+        };
         if (msg.error) {
+          commitThinking();
           appendAgentChunk(`[error: ${msg.error}]`, true);
           setIsTyping(false);
-          setSteps([]);
           return;
         }
+        if (msg.done) {
+          commitThinking();
+        }
         appendAgentChunk(msg.text, msg.done);
-        if (msg.done) setSteps([]);
       } catch {
         // raw text fallback
         appendAgentChunk(e.data as string, false);
@@ -104,11 +122,14 @@ export default function ChatPanel({ instanceName }: Props) {
     fetchMessages(instanceName, sessionKey)
       .then(stored => {
         if (unmounted.current || isTyping) return;
-        setMessages(stored.map(m => ({
-          id: ++_msgId,
-          role: m.role,
-          text: m.content,
-        })));
+        setMessages(stored.map(m => {
+          if (m.role === 'thinking') {
+            let steps: ChatStep[] = [];
+            try { steps = JSON.parse(m.content) as ChatStep[]; } catch { /* ignore */ }
+            return { id: ++_msgId, role: 'thinking' as const, text: '', steps };
+          }
+          return { id: ++_msgId, role: m.role as 'user' | 'agent', text: m.content };
+        }));
       })
       .catch(() => { /* history is best-effort */ })
       .finally(() => {
@@ -154,6 +175,7 @@ export default function ChatPanel({ instanceName }: Props) {
     ]);
     setInput('');
     setIsTyping(true);
+    liveSteps.current = [];
     setSteps([]);
 
     const payload = { message: text, session_key: sessionKey };
@@ -172,6 +194,23 @@ export default function ChatPanel({ instanceName }: Props) {
     wsState === 'connecting' ? 'connecting' :
     'error';
 
+  const renderStep = (s: ChatStep, i: number) => (
+    <div key={i} className={`chat-step chat-step-${s.kind}`}>
+      {s.kind === 'tool' ? (
+        <>
+          <span className="chat-step-icon">⚙</span>
+          <span className="chat-step-tool">{s.tool}</span>
+          {s.content && <span className="chat-step-args">{s.content}</span>}
+        </>
+      ) : (
+        <>
+          <span className="chat-step-icon">✳</span>
+          <span className="chat-step-reasoning">{s.content}</span>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div className="chat-container">
       <div className="chat-messages" ref={scrollRef}>
@@ -186,39 +225,33 @@ export default function ChatPanel({ instanceName }: Props) {
           </div>
         )}
         {messages.map(msg => (
-          <div
-            key={msg.id}
-            className={`chat-msg chat-msg-${msg.role}`}
-          >
-            <div className="chat-bubble">
-              {msg.text}
-              {msg.streaming && (
-                <span style={{ opacity: 0.5, animation: 'none' }}>▊</span>
-              )}
+          msg.role === 'thinking' ? (
+            <details key={msg.id} className="chat-thinking">
+              <summary>💭 thinking · {msg.steps?.length ?? 0} step{(msg.steps?.length ?? 0) === 1 ? '' : 's'}</summary>
+              <div className="chat-steps">
+                {(msg.steps ?? []).map(renderStep)}
+              </div>
+            </details>
+          ) : (
+            <div
+              key={msg.id}
+              className={`chat-msg chat-msg-${msg.role}`}
+            >
+              <div className="chat-bubble">
+                {msg.text}
+                {msg.streaming && (
+                  <span style={{ opacity: 0.5, animation: 'none' }}>▊</span>
+                )}
+              </div>
+              <div className="chat-meta">
+                {msg.role === 'user' ? 'you' : instanceName}
+              </div>
             </div>
-            <div className="chat-meta">
-              {msg.role === 'user' ? 'you' : instanceName}
-            </div>
-          </div>
+          )
         ))}
         {steps.length > 0 && (
           <div className="chat-steps">
-            {steps.map((s, i) => (
-              <div key={i} className={`chat-step chat-step-${s.kind}`}>
-                {s.kind === 'tool' ? (
-                  <>
-                    <span className="chat-step-icon">⚙</span>
-                    <span className="chat-step-tool">{s.tool}</span>
-                    {s.content && <span className="chat-step-args">{s.content}</span>}
-                  </>
-                ) : (
-                  <>
-                    <span className="chat-step-icon">✳</span>
-                    <span className="chat-step-reasoning">{s.content}</span>
-                  </>
-                )}
-              </div>
-            ))}
+            {steps.map(renderStep)}
           </div>
         )}
         {isTyping && !messages.some(m => m.role === 'agent' && m.streaming) && (
