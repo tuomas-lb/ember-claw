@@ -39,6 +39,7 @@ let _msgId = 0;
 export default function ChatPanel({ instanceName }: Props) {
   const [messages, setMessages] = useState<MsgEntry[]>([]);
   const [live, setLive] = useState<Live | null>(null);
+  const [queued, setQueued] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [wsState, setWsState] = useState<WsState>('connecting');
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -87,8 +88,10 @@ export default function ChatPanel({ instanceName }: Props) {
         case 'snapshot':
           // Authoritative state of the in-flight turn on (re)connect.
           setLive(ev.running ? { message: ev.message ?? '', steps: ev.steps ?? [] } : null);
+          setQueued(ev.queue ?? []);
           break;
         case 'status':
+          setQueued(ev.queue ?? []);
           if (ev.running) {
             setLive(l => l ?? { message: ev.message ?? '', steps: [] });
           } else {
@@ -150,6 +153,10 @@ export default function ChatPanel({ instanceName }: Props) {
     setLive(l => l ?? { message: text, steps: [] });
     setInput('');
     wsRef.current?.send(JSON.stringify({ message: text, session_key: sessionKey }));
+  }
+
+  function abort() {
+    wsRef.current?.send(JSON.stringify({ action: 'abort' }));
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -223,7 +230,9 @@ export default function ChatPanel({ instanceName }: Props) {
             )}
             <div className="chat-working">
               <div className="chat-working-head">
-                <span className="chat-working-spinner" /> {instanceName} is {activity}
+                <span className="chat-working-spinner" />
+                <span>{instanceName} is {activity}</span>
+                <button className="chat-stop" onClick={abort} title="Stop the current turn">stop</button>
               </div>
               {live.steps.length > 0 && (
                 <div className="chat-steps">{live.steps.map(renderStep)}</div>
@@ -231,6 +240,14 @@ export default function ChatPanel({ instanceName }: Props) {
             </div>
           </>
         )}
+
+        {/* Messages typed while a turn is running — queued server-side. */}
+        {queued.map((q, i) => (
+          <div key={`q-${i}`} className="chat-msg chat-msg-user chat-msg-queued">
+            <div className="chat-bubble">{q}</div>
+            <div className="chat-meta">queued</div>
+          </div>
+        ))}
       </div>
 
       <div className="chat-status-bar">

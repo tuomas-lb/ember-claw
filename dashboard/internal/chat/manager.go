@@ -26,7 +26,8 @@ import (
 type Event struct {
 	Type    string            `json:"type"`              // snapshot | status | step | done | error
 	Running bool              `json:"running"`           // snapshot/status: is a turn in progress
-	Message string            `json:"message,omitempty"` // snapshot: the running turn's user message
+	Message string            `json:"message,omitempty"` // snapshot/status: the running turn's user message
+	Queue   []string          `json:"queue,omitempty"`   // snapshot/status: messages waiting to run
 	Steps   []config.ChatStep `json:"steps,omitempty"`   // snapshot: steps accumulated so far
 	Step    *config.ChatStep  `json:"step,omitempty"`    // step: one new processing step
 	Text    string            `json:"text,omitempty"`    // done: the final answer
@@ -50,7 +51,18 @@ type sessionState struct {
 	message string // current running turn's user message
 	steps   []config.ChatStep
 	queue   []string
+	cancel  context.CancelFunc // cancels the in-flight turn (abort)
 	subs    map[chan Event]struct{}
+}
+
+// statusEventLocked builds a status Event from the current state. Caller holds ss.mu.
+func statusEventLocked(ss *sessionState) Event {
+	return Event{
+		Type:    "status",
+		Running: ss.running,
+		Message: ss.message,
+		Queue:   append([]string(nil), ss.queue...),
+	}
 }
 
 // New creates a Manager. store may be nil (persistence disabled).
@@ -79,7 +91,7 @@ func (m *Manager) Subscribe(instance, session string) (Event, <-chan Event, func
 	ch := make(chan Event, subBuffer)
 
 	ss.mu.Lock()
-	snap := Event{Type: "snapshot", Running: ss.running}
+	snap := Event{Type: "snapshot", Running: ss.running, Queue: append([]string(nil), ss.queue...)}
 	if ss.running {
 		snap.Message = ss.message
 		snap.Steps = append([]config.ChatStep(nil), ss.steps...)
@@ -116,11 +128,24 @@ func (m *Manager) Submit(instance, session, message string) {
 	ss.queue = append(ss.queue, message)
 	start := !ss.running
 	if start {
-		ss.running = true
+		ss.running = true // worker's first status carries the message
+	} else {
+		broadcastLocked(ss, statusEventLocked(ss)) // surface the newly queued message
 	}
 	ss.mu.Unlock()
 	if start {
 		go m.worker(instance, session, ss)
+	}
+}
+
+// Abort cancels the session's in-flight turn, if any. Queued messages still run.
+func (m *Manager) Abort(instance, session string) {
+	ss := m.get(instance, session)
+	ss.mu.Lock()
+	cancel := ss.cancel
+	ss.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 
@@ -131,7 +156,7 @@ func (m *Manager) worker(instance, session string, ss *sessionState) {
 			ss.running = false
 			ss.message = ""
 			ss.steps = nil
-			broadcastLocked(ss, Event{Type: "status", Running: false})
+			broadcastLocked(ss, statusEventLocked(ss))
 			ss.mu.Unlock()
 			return
 		}
@@ -139,7 +164,7 @@ func (m *Manager) worker(instance, session string, ss *sessionState) {
 		ss.queue = ss.queue[1:]
 		ss.message = msg
 		ss.steps = nil
-		broadcastLocked(ss, Event{Type: "status", Running: true, Message: msg})
+		broadcastLocked(ss, statusEventLocked(ss))
 		ss.mu.Unlock()
 
 		m.runTurn(instance, session, ss, msg)
@@ -148,9 +173,37 @@ func (m *Manager) worker(instance, session string, ss *sessionState) {
 
 func (m *Manager) runTurn(instance, session string, ss *sessionState, message string) {
 	// Detached context: the turn runs to completion (and persists) even if every
-	// client disconnects. Cancelled when the turn finishes to close the stream.
+	// client disconnects. Cancelled when the turn finishes, or by Abort.
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ss.mu.Lock()
+	ss.cancel = cancel
+	ss.mu.Unlock()
+	defer func() {
+		ss.mu.Lock()
+		ss.cancel = nil
+		ss.mu.Unlock()
+		cancel()
+	}()
+
+	// persist stores the accumulated thinking + a final agent message, then emits
+	// the terminal event. Used for both normal completion and user abort.
+	persist := func(answer string) {
+		steps := m.snapshotSteps(ss)
+		if m.store != nil {
+			if len(steps) > 0 {
+				if b, mErr := json.Marshal(steps); mErr == nil {
+					if _, err := m.store.AddMessage(ctx, instance, session, "thinking", string(b)); err != nil {
+						log.Printf("chat: persist thinking (%s): %v", instance, err)
+					}
+				}
+			}
+			if answer != "" {
+				if _, err := m.store.AddMessage(ctx, instance, session, "agent", answer); err != nil {
+					log.Printf("chat: persist agent message (%s): %v", instance, err)
+				}
+			}
+		}
+	}
 
 	if m.store != nil && message != "" {
 		if _, err := m.store.AddMessage(ctx, instance, session, "user", message); err != nil {
@@ -168,9 +221,15 @@ func (m *Manager) runTurn(instance, session string, ss *sessionState, message st
 		return
 	}
 
+	const stopped = "_(stopped by user)_"
 	for {
 		frame, err := stream.Recv()
 		if err != nil {
+			if ctx.Err() != nil { // aborted via Abort()
+				persist(stopped)
+				m.emit(ss, Event{Type: "done", Text: stopped})
+				return
+			}
 			m.emit(ss, Event{Type: "error", Error: "chat stream: " + err.Error()})
 			return
 		}
@@ -188,25 +247,12 @@ func (m *Manager) runTurn(instance, session string, ss *sessionState, message st
 			continue
 		}
 
-		// Terminal frame: persist thinking + answer, then broadcast the result.
-		steps := m.snapshotSteps(ss)
-		if m.store != nil {
-			if len(steps) > 0 {
-				if b, mErr := json.Marshal(steps); mErr == nil {
-					if _, err := m.store.AddMessage(ctx, instance, session, "thinking", string(b)); err != nil {
-						log.Printf("chat: persist thinking (%s): %v", instance, err)
-					}
-				}
-			}
-			if frame.GetError() == "" && frame.GetText() != "" {
-				if _, err := m.store.AddMessage(ctx, instance, session, "agent", frame.GetText()); err != nil {
-					log.Printf("chat: persist agent message (%s): %v", instance, err)
-				}
-			}
-		}
+		// Terminal frame.
 		if frame.GetError() != "" {
+			persist("")
 			m.emit(ss, Event{Type: "error", Error: frame.GetError()})
 		} else {
+			persist(frame.GetText())
 			m.emit(ss, Event{Type: "done", Text: frame.GetText()})
 		}
 		return

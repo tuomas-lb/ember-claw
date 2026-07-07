@@ -51,6 +51,7 @@ export interface ChatEvent {
   type: 'snapshot' | 'status' | 'step' | 'done' | 'error';
   running?: boolean;      // snapshot/status: is a turn in progress
   message?: string;       // snapshot/status: the running turn's user message
+  queue?: string[];       // snapshot/status: messages waiting to run
   steps?: ChatStep[];     // snapshot: steps accumulated so far
   step?: ChatStep;        // step: one new processing step
   text?: string;          // done: the final answer

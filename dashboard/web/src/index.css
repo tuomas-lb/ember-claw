@@ -695,6 +695,29 @@ tbody td {
   color: var(--text-dim);
 }
 
+.chat-stop {
+  margin-left: auto;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border-hi);
+  border-radius: 5px;
+  padding: 2px 10px;
+}
+
+.chat-stop:hover {
+  color: #fff;
+  border-color: #e5484d;
+  background: rgba(229, 72, 77, 0.15);
+}
+
+/* A message queued while a turn is running. */
+.chat-msg-queued .chat-bubble {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
 .chat-working-spinner {
   width: 10px;
   height: 10px;

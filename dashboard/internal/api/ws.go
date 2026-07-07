@@ -141,7 +141,14 @@ func (h *Handler) HandleChat(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		var cm config.ChatMessage
-		if json.Unmarshal(msg, &cm) == nil && cm.Message != "" {
+		if json.Unmarshal(msg, &cm) != nil {
+			continue
+		}
+		if cm.Action == "abort" {
+			h.chat.Abort(name, session)
+			continue
+		}
+		if cm.Message != "" {
 			h.chat.Submit(name, session, cm.Message)
 		}
 	}
