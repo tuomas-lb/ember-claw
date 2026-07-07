@@ -111,7 +111,18 @@ API key resolution for `deploy` and `models`:
 
 ### Provider → model_list mapping
 
-`buildPicoClawConfig` turns `--provider`/`--model` into a PicoClaw `model_list` entry whose `model` field is `"<protocol>/<model-id>"`. The protocol prefix selects PicoClaw's provider adapter; each provider also gets a default `api_base`. Most ember-claw provider names are PicoClaw protocol prefixes as-is; **`byteplus` maps to the `volcengine` protocol** (BytePlus ModelArk is the international brand of Volcengine Ark and is OpenAI-compatible) with `api_base` `https://ark.ap-southeast.bytepluses.com/api/v3`. A `--api-base` flag (or `ECLAW_API_BASE`) overrides the default for any provider — region/plan-specific endpoints (e.g. BytePlus's Coding Plan `/api/coding/v3`) or self-hosted OpenAI-compatible gateways.
+`buildPicoClawConfig` turns `--provider`/`--model` into a PicoClaw `model_list` entry whose `model` field is `"<protocol>/<model-id>"`. The protocol prefix selects PicoClaw's provider adapter (`CreateProviderFromConfig`); each provider also gets a default `api_base`.
+
+`providerProtocol(provider, apiBase)` maps the eclaw provider name to a PicoClaw protocol. Most names are protocols as-is, but several must be remapped because PicoClaw would reject the raw name (`default: unknown protocol`) and crash-loop the pod:
+
+| `--provider` | protocol | default `api_base` |
+|--------------|----------|--------------------|
+| `byteplus` | `volcengine` | `https://ark.ap-southeast.bytepluses.com/api/v3` |
+| `kimi` | `moonshot` | `https://api.moonshot.cn/v1` |
+| `xai` | `openai` | `https://api.x.ai/v1` |
+| `google` | `gemini` | (Gemini default) |
+
+`--api-base` (or `ECLAW_API_BASE`) overrides the default for any provider — region/plan-specific endpoints (e.g. BytePlus's Coding Plan `/api/coding/v3`) or self-hosted gateways. An **unrecognized** provider name combined with an explicit `--api-base` is treated as a generic OpenAI-compatible endpoint (protocol `openai`). `DeployInstance` calls `validateProvider` first and returns an error — before creating any cluster resources — if the provider resolves to a protocol PicoClaw doesn't accept and no `--api-base` was given, so a misconfiguration surfaces as a CLI error rather than a CrashLoopBackOff.
 
 ### PicoClaw Configuration in Container
 

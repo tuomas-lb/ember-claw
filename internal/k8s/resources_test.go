@@ -587,6 +587,89 @@ func TestDeployInstance_BytePlusProvider(t *testing.T) {
 	})
 }
 
+func TestProviderProtocol(t *testing.T) {
+	cases := []struct {
+		provider, apiBase, want string
+	}{
+		{"openrouter", "", "openrouter"},
+		{"deepseek", "", "deepseek"},
+		{"mistral", "", "mistral"},
+		{"byteplus", "", "volcengine"},
+		{"kimi", "", "moonshot"},   // Kimi's PicoClaw protocol
+		{"xai", "", "openai"},      // grok is OpenAI-compatible; no "xai" protocol
+		{"google", "", "gemini"},   // Gemini's PicoClaw protocol
+		{"customcorp", "https://api.custom.ai/v1", "openai"}, // unknown + api_base → generic OpenAI
+		{"customcorp", "", "customcorp"},                     // unknown, no base → passthrough (invalid; caught by validateProvider)
+	}
+	for _, tc := range cases {
+		if got := providerProtocol(tc.provider, tc.apiBase); got != tc.want {
+			t.Errorf("providerProtocol(%q,%q) = %q, want %q", tc.provider, tc.apiBase, got, tc.want)
+		}
+	}
+}
+
+func TestValidateProvider(t *testing.T) {
+	for _, p := range []string{"anthropic", "openai", "gemini", "groq", "deepseek", "openrouter", "mistral", "xai", "kimi", "copilot", "byteplus"} {
+		assert.NoError(t, validateProvider(p, ""), "provider %q should be valid", p)
+	}
+	// Unknown provider is allowed only with an explicit custom endpoint.
+	assert.NoError(t, validateProvider("customcorp", "https://api.custom.ai/v1"))
+	assert.Error(t, validateProvider("customcorp", ""))
+}
+
+func TestDeployInstance_ProviderRemaps(t *testing.T) {
+	readConfig := func(t *testing.T, client *Client, ctx context.Context) string {
+		fakeCS := client.cs.(*fake.Clientset)
+		secrets, _ := fakeCS.CoreV1().Secrets(testNamespace).List(ctx, metav1.ListOptions{})
+		require.Len(t, secrets.Items, 1)
+		s := secrets.Items[0]
+		if v, ok := s.StringData["config.json"]; ok {
+			return v
+		}
+		return string(s.Data["config.json"])
+	}
+	cases := []struct{ provider, model, wantRef, wantBase string }{
+		{"xai", "grok-4", "openai/grok-4", "https://api.x.ai/v1"},
+		{"kimi", "kimi-k2-250905", "moonshot/kimi-k2-250905", "https://api.moonshot.cn/v1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.provider, func(t *testing.T) {
+			client := newTestClient()
+			ctx := context.Background()
+			opts := defaultDeployOptions()
+			opts.Provider = tc.provider
+			opts.APIKey = "test-key"
+			opts.Model = tc.model
+			require.NoError(t, client.DeployInstance(ctx, opts))
+			cfg := readConfig(t, client, ctx)
+			assert.Contains(t, cfg, tc.wantRef, "model ref must use the remapped protocol")
+			assert.Contains(t, cfg, tc.wantBase)
+		})
+	}
+}
+
+func TestDeployInstance_UnsupportedProviderFailsFast(t *testing.T) {
+	client := newTestClient()
+	ctx := context.Background()
+	opts := defaultDeployOptions()
+	opts.Provider = "totallybogus"
+	opts.APIKey = "test-key"
+	opts.Model = "some-model"
+
+	err := client.DeployInstance(ctx, opts)
+	require.Error(t, err, "unsupported provider without --api-base must be rejected")
+	assert.Contains(t, err.Error(), "unsupported provider")
+
+	// Nothing must have been created (fail-fast before cluster mutation).
+	fakeCS := client.cs.(*fake.Clientset)
+	secrets, _ := fakeCS.CoreV1().Secrets(testNamespace).List(ctx, metav1.ListOptions{})
+	assert.Empty(t, secrets.Items, "no resources should be created on validation failure")
+
+	// With an explicit --api-base it is accepted as a generic OpenAI-compatible endpoint.
+	opts.APIBase = "https://api.totallybogus.ai/v1"
+	require.NoError(t, client.DeployInstance(ctx, opts))
+}
+
 // TestGetInstanceLogs verifies log retrieval path (happy path with a running pod).
 func TestGetInstanceLogs(t *testing.T) {
 	fakeCS := fake.NewSimpleClientset()
