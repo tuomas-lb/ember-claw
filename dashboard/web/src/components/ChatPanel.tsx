@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, KeyboardEvent } from 'react';
-import { connectChat, fetchMessages, ChatMessage, ChatStep } from '../api/client';
+import { connectChat, fetchMessages, ChatEvent, ChatStep } from '../api/client';
 
 interface Props {
   instanceName: string;
@@ -7,7 +7,8 @@ interface Props {
 
 // A stable session id per instance, persisted in localStorage so the
 // conversation (and the agent's own session continuity) survives navigation,
-// reloads, and reconnects. Server persists all messages under this id.
+// reloads, and reconnects. The server persists all messages under this id and
+// tracks the live turn per session.
 function stableSessionKey(instanceName: string): string {
   const storageKey = `eclaw.chat.session.${instanceName}`;
   let key = localStorage.getItem(storageKey);
@@ -22,8 +23,13 @@ interface MsgEntry {
   id: number;
   role: 'user' | 'agent' | 'thinking';
   text: string;
-  streaming?: boolean;
-  steps?: ChatStep[]; // set when role === 'thinking'
+  steps?: ChatStep[]; // when role === 'thinking'
+}
+
+// Live is the current in-flight turn as reported by the server. null = idle.
+interface Live {
+  message: string;
+  steps: ChatStep[];
 }
 
 type WsState = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -32,96 +38,23 @@ let _msgId = 0;
 
 export default function ChatPanel({ instanceName }: Props) {
   const [messages, setMessages] = useState<MsgEntry[]>([]);
+  const [live, setLive] = useState<Live | null>(null);
+  const [queued, setQueued] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [wsState, setWsState] = useState<WsState>('connecting');
-  const [isTyping, setIsTyping] = useState(false);
-  const [steps, setSteps] = useState<ChatStep[]>([]);
-  const [sessionKey] = useState<string>(() => stableSessionKey(instanceName));
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [sessionKey] = useState<string>(() => stableSessionKey(instanceName));
   const wsRef = useRef<WebSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unmounted = useRef(false);
-  // Source of truth for the current turn's steps (read at 'done' to commit a
-  // persisted-style thinking block); mirrored to `steps` state for live render.
-  const liveSteps = useRef<ChatStep[]>([]);
 
-  const appendAgentChunk = useCallback((text: string, done: boolean) => {
-    setMessages(prev => {
-      const last = prev[prev.length - 1];
-      if (last && last.role === 'agent' && last.streaming) {
-        return [
-          ...prev.slice(0, -1),
-          { ...last, text: last.text + text, streaming: !done },
-        ];
-      }
-      return [
-        ...prev,
-        { id: ++_msgId, role: 'agent', text, streaming: !done },
-      ];
-    });
-    if (done) setIsTyping(false);
-  }, []);
-
-  const connect = useCallback(() => {
-    if (unmounted.current) return;
-    setWsState('connecting');
-
-    const ws = connectChat(instanceName);
-    wsRef.current = ws;
-
-    ws.onopen = () => setWsState('connected');
-    ws.onerror = () => setWsState('error');
-    ws.onclose = () => {
-      if (unmounted.current) return;
-      setWsState('disconnected');
-      reconnectTimer.current = setTimeout(connect, 3000);
-    };
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data as string) as ChatMessage;
-        // Intermediate processing step (reasoning / tool call) — show live.
-        if (msg.step) {
-          liveSteps.current = [...liveSteps.current, msg.step as ChatStep];
-          setSteps(liveSteps.current);
-          return;
-        }
-        // On a terminal frame (answer or error), commit the accumulated steps
-        // as a persisted-style thinking block, then the answer — so the live
-        // view matches what a reload shows.
-        const commitThinking = () => {
-          if (liveSteps.current.length) {
-            const committed = liveSteps.current;
-            setMessages(prev => [...prev, { id: ++_msgId, role: 'thinking', text: '', steps: committed }]);
-          }
-          liveSteps.current = [];
-          setSteps([]);
-        };
-        if (msg.error) {
-          commitThinking();
-          appendAgentChunk(`[error: ${msg.error}]`, true);
-          setIsTyping(false);
-          return;
-        }
-        if (msg.done) {
-          commitThinking();
-        }
-        appendAgentChunk(msg.text, msg.done);
-      } catch {
-        // raw text fallback
-        appendAgentChunk(e.data as string, false);
-      }
-    };
-  }, [instanceName, appendAgentChunk]);
-
-  // Load persisted history for this instance's session. Replaces the message
-  // list with the server's copy, but never while a turn is streaming in this
-  // view (that would clobber the in-flight response).
+  // Load persisted history (completed turns) — replaces the message list with
+  // the server's authoritative copy. The live turn is tracked separately.
   const loadHistory = useCallback(() => {
-    if (isTyping) return;
     fetchMessages(instanceName, sessionKey)
       .then(stored => {
-        if (unmounted.current || isTyping) return;
+        if (unmounted.current) return;
         setMessages(stored.map(m => {
           if (m.role === 'thinking') {
             let steps: ChatStep[] = [];
@@ -131,20 +64,69 @@ export default function ChatPanel({ instanceName }: Props) {
           return { id: ++_msgId, role: m.role as 'user' | 'agent', text: m.content };
         }));
       })
-      .catch(() => { /* history is best-effort */ })
-      .finally(() => {
-        if (!unmounted.current) setHistoryLoaded(true);
-      });
-  }, [instanceName, sessionKey, isTyping]);
+      .catch(() => { /* best-effort */ })
+      .finally(() => { if (!unmounted.current) setHistoryLoaded(true); });
+  }, [instanceName, sessionKey]);
 
-  // Load history on mount, then connect. Also refetch whenever the window
-  // regains focus — so a response that completed server-side while the user
-  // was on another tab reappears on return (the live stream only reaches the
-  // tab that was open when it was generated).
+  const connect = useCallback(() => {
+    if (unmounted.current) return;
+    setWsState('connecting');
+    const ws = connectChat(instanceName, sessionKey);
+    wsRef.current = ws;
+
+    ws.onopen = () => setWsState('connected');
+    ws.onerror = () => setWsState('error');
+    ws.onclose = () => {
+      if (unmounted.current) return;
+      setWsState('disconnected');
+      reconnectTimer.current = setTimeout(connect, 2000);
+    };
+    ws.onmessage = (e) => {
+      let ev: ChatEvent;
+      try { ev = JSON.parse(e.data as string) as ChatEvent; } catch { return; }
+      switch (ev.type) {
+        case 'snapshot':
+          // Authoritative state of the in-flight turn on (re)connect.
+          setLive(ev.running ? { message: ev.message ?? '', steps: ev.steps ?? [] } : null);
+          setQueued(ev.queue ?? []);
+          break;
+        case 'status':
+          setQueued(ev.queue ?? []);
+          if (ev.running) {
+            setLive(l => l ?? { message: ev.message ?? '', steps: [] });
+          } else {
+            // Turn(s) finished / idle — pull the authoritative history.
+            setLive(null);
+            loadHistory();
+          }
+          break;
+        case 'step':
+          if (ev.step) {
+            const s = ev.step;
+            setLive(l => ({ message: l?.message ?? '', steps: [...(l?.steps ?? []), s] }));
+          }
+          break;
+        case 'done':
+          setLive(null);
+          loadHistory();
+          break;
+        case 'error':
+          setLive(null);
+          loadHistory();
+          if (ev.error) {
+            setMessages(prev => [...prev, { id: ++_msgId, role: 'agent', text: `[error: ${ev.error}]` }]);
+          }
+          break;
+      }
+    };
+  }, [instanceName, sessionKey, loadHistory]);
+
   useEffect(() => {
     unmounted.current = false;
     loadHistory();
     connect();
+    // Re-sync history when returning to the tab (in case something completed
+    // while the socket was backgrounded).
     const onFocus = () => loadHistory();
     window.addEventListener('focus', onFocus);
     return () => {
@@ -153,33 +135,28 @@ export default function ChatPanel({ instanceName }: Props) {
       wsRef.current?.close();
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     };
-    // loadHistory intentionally omitted: it depends on isTyping, which would
-    // otherwise tear down and reopen the WebSocket on every send.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connect, instanceName, sessionKey]);
+  }, [connect, loadHistory]);
 
-  // Auto-scroll on new messages
+  // Auto-scroll to the newest content.
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isTyping]);
+  }, [messages, live]);
 
   function send() {
     const text = input.trim();
     if (!text || wsState !== 'connected') return;
-
-    setMessages(prev => [
-      ...prev,
-      { id: ++_msgId, role: 'user', text },
-    ]);
+    // Optimistically show the running turn immediately (only if idle — a queued
+    // message surfaces when its turn actually starts, via the server's status
+    // event). The server confirms via status/step and persists on completion.
+    setLive(l => l ?? { message: text, steps: [] });
     setInput('');
-    setIsTyping(true);
-    liveSteps.current = [];
-    setSteps([]);
+    wsRef.current?.send(JSON.stringify({ message: text, session_key: sessionKey }));
+  }
 
-    const payload = { message: text, session_key: sessionKey };
-    wsRef.current?.send(JSON.stringify(payload));
+  function abort() {
+    wsRef.current?.send(JSON.stringify({ action: 'abort' }));
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -211,60 +188,74 @@ export default function ChatPanel({ instanceName }: Props) {
     </div>
   );
 
+  const lastStep = live?.steps[live.steps.length - 1];
+  const activity = lastStep
+    ? (lastStep.kind === 'tool' ? `running ${lastStep.tool}…` : 'thinking…')
+    : 'working…';
+
+  const empty = messages.length === 0 && !live;
+
   return (
     <div className="chat-container">
       <div className="chat-messages" ref={scrollRef}>
-        {messages.length === 0 && !historyLoaded && (
-          <div style={{ color: 'var(--text-faint)', fontSize: 12, textAlign: 'center', padding: 24 }}>
-            loading conversation…
-          </div>
+        {empty && !historyLoaded && (
+          <div className="chat-empty">loading conversation…</div>
         )}
-        {messages.length === 0 && historyLoaded && (
-          <div style={{ color: 'var(--text-faint)', fontSize: 12, textAlign: 'center', padding: 24 }}>
-            Send a message to start a conversation
-          </div>
+        {empty && historyLoaded && (
+          <div className="chat-empty">Send a message to start a conversation</div>
         )}
+
         {messages.map(msg => (
           msg.role === 'thinking' ? (
             <details key={msg.id} className="chat-thinking" open>
               <summary>💭 thinking · {msg.steps?.length ?? 0} step{(msg.steps?.length ?? 0) === 1 ? '' : 's'}</summary>
-              <div className="chat-steps">
-                {(msg.steps ?? []).map(renderStep)}
-              </div>
+              <div className="chat-steps">{(msg.steps ?? []).map(renderStep)}</div>
             </details>
           ) : (
-            <div
-              key={msg.id}
-              className={`chat-msg chat-msg-${msg.role}`}
-            >
-              <div className="chat-bubble">
-                {msg.text}
-                {msg.streaming && (
-                  <span style={{ opacity: 0.5, animation: 'none' }}>▊</span>
-                )}
-              </div>
-              <div className="chat-meta">
-                {msg.role === 'user' ? 'you' : instanceName}
-              </div>
+            <div key={msg.id} className={`chat-msg chat-msg-${msg.role}`}>
+              <div className="chat-bubble">{msg.text}</div>
+              <div className="chat-meta">{msg.role === 'user' ? 'you' : instanceName}</div>
             </div>
           )
         ))}
-        {steps.length > 0 && (
-          <div className="chat-steps">
-            {steps.map(renderStep)}
+
+        {/* Live, server-tracked in-flight turn (survives reload/second tab). */}
+        {live && (
+          <>
+            {live.message && (
+              <div className="chat-msg chat-msg-user">
+                <div className="chat-bubble">{live.message}</div>
+                <div className="chat-meta">you</div>
+              </div>
+            )}
+            <div className="chat-working">
+              <div className="chat-working-head">
+                <span className="chat-working-spinner" />
+                <span>{instanceName} is {activity}</span>
+                <button className="chat-stop" onClick={abort} title="Stop the current turn">stop</button>
+              </div>
+              {live.steps.length > 0 && (
+                <div className="chat-steps">{live.steps.map(renderStep)}</div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Messages typed while a turn is running — queued server-side. */}
+        {queued.map((q, i) => (
+          <div key={`q-${i}`} className="chat-msg chat-msg-user chat-msg-queued">
+            <div className="chat-bubble">{q}</div>
+            <div className="chat-meta">queued</div>
           </div>
-        )}
-        {isTyping && !messages.some(m => m.role === 'agent' && m.streaming) && (
-          <div className="chat-typing">{steps.length > 0 ? 'working...' : 'typing...'}</div>
-        )}
+        ))}
       </div>
 
       <div className="chat-status-bar">
         <span className={`ws-dot ${wsDotClass}`} />
         <span>
-          {wsState === 'connected' && `connected — session ${sessionKey.slice(0, 8)}...`}
-          {wsState === 'connecting' && 'connecting...'}
-          {wsState === 'disconnected' && 'disconnected — reconnecting...'}
+          {wsState === 'connected' && (live ? `${instanceName} is working…` : `connected — session ${sessionKey.slice(0, 12)}…`)}
+          {wsState === 'connecting' && 'connecting…'}
+          {wsState === 'disconnected' && 'reconnecting…'}
           {wsState === 'error' && 'connection error'}
         </span>
       </div>
@@ -277,10 +268,8 @@ export default function ChatPanel({ instanceName }: Props) {
           onKeyDown={handleKeyDown}
           placeholder={
             wsState === 'connected'
-              ? 'Type a message... (Enter to send, Shift+Enter for newline)'
-              : wsState === 'connecting'
-              ? 'Connecting...'
-              : 'Disconnected'
+              ? 'Type a message… (Enter to send, Shift+Enter for newline)'
+              : 'Connecting…'
           }
           disabled={wsState !== 'connected'}
           rows={1}

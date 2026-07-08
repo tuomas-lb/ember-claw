@@ -46,6 +46,7 @@ type SecretUpdate struct {
 type ChatMessage struct {
 	Message    string `json:"message"`
 	SessionKey string `json:"session_key,omitempty"`
+	Action     string `json:"action,omitempty"` // e.g. "abort" to stop the running turn
 }
 
 type ChatResponse struct {
