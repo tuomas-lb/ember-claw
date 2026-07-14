@@ -42,10 +42,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
-    # Node.js (via nodesource for recent version)
-    nodejs \
-    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Node.js 20 from NodeSource (bookworm ships 18; @playwright/mcp and other MCP
+# tools now require Node >= 20). Includes npm.
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/* && \
+    node --version
 
 # Install Go
 RUN curl -fsSL https://go.dev/dl/go1.26.4.linux-amd64.tar.gz | tar -C /usr/local -xz
