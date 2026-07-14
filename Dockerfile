@@ -11,8 +11,10 @@ RUN go mod download
 
 # Copy source and build for linux/amd64
 COPY . .
+# whatsapp_native enables the in-process WhatsApp channel (whatsmeow + pure-Go
+# modernc.org/sqlite, so CGO stays disabled). Runtime-gated by config.
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -ldflags="-w -s" -o /sidecar ./cmd/sidecar
+    go build -tags whatsapp_native -ldflags="-w -s" -o /sidecar ./cmd/sidecar
 
 # Build the eclaw CLI for in-container fleet control (uses in-cluster ServiceAccount).
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \

@@ -148,3 +148,59 @@ Get your user ID from @userinfobot on Telegram.`,
 
 	return cmd
 }
+
+// newSetWhatsAppCommand creates the "set-whatsapp" convenience command.
+func newSetWhatsAppCommand() *cobra.Command {
+	var allowFrom []string
+
+	cmd := &cobra.Command{
+		Use:   "set-whatsapp <name>",
+		Short: "Configure the native WhatsApp channel for an instance",
+		Long: `Patches the instance's config.json to enable the native WhatsApp channel
+(whatsmeow) and restarts the pod. The session store lives on the instance PVC so
+the linked device survives restarts.
+
+Requires a sidecar image built with the "whatsapp_native" build tag.
+
+After the pod restarts, run 'eclaw logs <name>' and scan the QR code with
+WhatsApp on your phone (Settings → Linked Devices → Link a device).
+
+Note: native WhatsApp uses the unofficial WhatsApp Web protocol. Link a
+dedicated number, not a personal/business-critical one — it may be banned.
+
+--allow-from takes phone numbers (with country code, digits only) permitted to
+message the bot.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			if len(allowFrom) == 0 {
+				return fmt.Errorf("--allow-from is required (phone numbers allowed to message the bot, e.g. 358401234567)")
+			}
+
+			var numbers []string
+			for _, v := range allowFrom {
+				for _, id := range strings.Split(v, ",") {
+					id = strings.TrimSpace(id)
+					if id != "" {
+						numbers = append(numbers, id)
+					}
+				}
+			}
+
+			ctx := context.Background()
+			if err := k8sClient.SetWhatsApp(ctx, name, numbers); err != nil {
+				return fmt.Errorf("set whatsapp for %s: %w", name, err)
+			}
+
+			green := color.New(color.FgGreen).SprintFunc()
+			fmt.Printf("%s WhatsApp (native) configured for %s (pod restarting)\n", green("✓"), name)
+			fmt.Printf("  Allowed numbers: %s\n", strings.Join(numbers, ", "))
+			fmt.Printf("  Next: run 'eclaw logs %s' and scan the QR code from WhatsApp → Linked Devices.\n", name)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringSliceVar(&allowFrom, "allow-from", nil, "Phone numbers allowed to message the bot (required, comma-separated, country code + digits)")
+
+	return cmd
+}

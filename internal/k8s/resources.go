@@ -1336,6 +1336,47 @@ func (c *Client) SetTelegram(ctx context.Context, instanceName, token string, al
 	return c.PushConfig(ctx, instanceName, updated)
 }
 
+// SetWhatsApp configures the native WhatsApp channel (whatsmeow) in the
+// instance's config.json. The session store lives on the PVC so the linked
+// device survives restarts. Requires a sidecar image built with the
+// `whatsapp_native` build tag. On first start the sidecar logs a QR code to
+// scan from WhatsApp → Linked Devices.
+func (c *Client) SetWhatsApp(ctx context.Context, instanceName string, allowFrom []string) error {
+	raw, err := c.PullConfig(ctx, instanceName)
+	if err != nil {
+		return err
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return fmt.Errorf("parse existing config: %w", err)
+	}
+
+	channels, ok := cfg["channels"].(map[string]interface{})
+	if !ok {
+		channels = map[string]interface{}{}
+	}
+	channels["whatsapp"] = map[string]interface{}{
+		"enabled":            true,
+		"use_native":         true,
+		"session_store_path": MountPath + "/whatsapp",
+		"allow_from":         allowFrom,
+	}
+	cfg["channels"] = channels
+
+	if _, ok := cfg["gateway"]; !ok {
+		cfg["gateway"] = map[string]interface{}{
+			"host": "0.0.0.0",
+			"port": 8080,
+		}
+	}
+
+	updated, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal updated config: %w", err)
+	}
+	return c.PushConfig(ctx, instanceName, updated)
+}
+
 // SetSecret adds or updates a key-value pair in the instance's Secret.
 // The pod must be restarted to pick up changes (rollout restart on the Deployment).
 func (c *Client) SetSecret(ctx context.Context, instanceName, key, value string) error {

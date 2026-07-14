@@ -3,9 +3,9 @@ package cli
 import (
 	"os"
 
+	"github.com/spf13/cobra"
 	"github.com/tuomas-lb/ember-claw/internal/envfile"
 	"github.com/tuomas-lb/ember-claw/internal/k8s"
-	"github.com/spf13/cobra"
 )
 
 // k8sClient is the package-level Kubernetes client, initialized in PersistentPreRunE.
@@ -68,6 +68,7 @@ func NewRootCommand() *cobra.Command {
 		newUnexposeCommand(),
 		newConfigCommand(),
 		newSetTelegramCommand(),
+		newSetWhatsAppCommand(),
 		newSetCalDAVCommand(),
 		newSetGmailCommand(),
 		newKubeconfigCommand(),

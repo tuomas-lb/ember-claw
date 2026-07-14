@@ -294,6 +294,27 @@ eclaw set-gmail my-agent remove work
 
 The Gmail MCP server provides 6 tools: `list_mailboxes`, `list_folders`, `search`, `read`, `list_recent`, `count_unread`. All are read-only — the server cannot send or delete emails.
 
+## Configuring WhatsApp (native)
+
+Enable the in-process WhatsApp channel (whatsmeow) — no external bridge or webhook. It maintains an outbound websocket like Telegram polling, and stores its linked-device session on the instance PVC so it survives restarts.
+
+```bash
+# --allow-from: phone numbers (country code + digits) permitted to message the bot
+eclaw set-whatsapp clivia --allow-from 358401234567,358409876543
+```
+
+Then link the device (one-time):
+
+```bash
+eclaw logs clivia --follow      # a QR code prints on first start
+```
+
+Scan it with WhatsApp on your phone: **Settings → Linked Devices → Link a device**. The session persists at `/home/picoclaw/.picoclaw/whatsapp` on the PVC.
+
+**Requirements & caveats:**
+- The sidecar image must be built with the **`whatsapp_native`** build tag (the default ember-claw image is — see [CLAUDE.md](../CLAUDE.md)). Uses pure-Go `modernc.org/sqlite`, so no CGO.
+- Native WhatsApp uses the **unofficial** WhatsApp Web protocol. Link a **dedicated number**, not a personal/business-critical one — it can be banned by WhatsApp. For an official path, use the WhatsApp Business Cloud API / a BSP (webhook-based, requires more infra) instead.
+
 ## Managing Instances
 
 ### List All
