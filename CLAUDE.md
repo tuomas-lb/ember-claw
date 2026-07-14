@@ -97,6 +97,11 @@ Generated config.json sets container-optimized defaults:
 | `gmail` | gmail-mcp (local) | IMAP email access | Via `eclaw set-gmail` command |
 | `playwright` | @playwright/mcp | Headless browser automation | Via `--playwright` deploy flag |
 
+### Channels (messaging)
+
+- **Telegram**: `eclaw set-telegram <name> --token … --allow-from …` (long-polling; no webhook).
+- **WhatsApp (native)**: `eclaw set-whatsapp <name> --allow-from <numbers>` enables the in-process whatsmeow channel — patches `channels.whatsapp {enabled, use_native, session_store_path, allow_from}`. Session store on the PVC (`/home/picoclaw/.picoclaw/whatsapp`); one-time QR login via `eclaw logs` (WhatsApp → Linked Devices). **Compile-time gated**: the sidecar must be built with `-tags whatsapp_native` (set in the Dockerfile; uses pure-Go `modernc.org/sqlite`, CGO stays off). Runtime-gated by config. Unofficial WhatsApp Web protocol — link a dedicated number (ban risk). Webhook-based channels aren't supported in container mode (the channel-manager webhook server is off due to the 8080 collision); native WhatsApp needs no webhook.
+
 ### Web Control Interface
 
 - Sidecar serves a control UI at `/` on port 8080 (status + chat) alongside `/health`/`/ready`

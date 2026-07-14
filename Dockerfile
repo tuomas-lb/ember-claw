@@ -11,8 +11,10 @@ RUN go mod download
 
 # Copy source and build for linux/amd64
 COPY . .
+# whatsapp_native enables the in-process WhatsApp channel (whatsmeow + pure-Go
+# modernc.org/sqlite, so CGO stays disabled). Runtime-gated by config.
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -ldflags="-w -s" -o /sidecar ./cmd/sidecar
+    go build -tags whatsapp_native -ldflags="-w -s" -o /sidecar ./cmd/sidecar
 
 # Build the eclaw CLI for in-container fleet control (uses in-cluster ServiceAccount).
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
@@ -40,10 +42,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
-    # Node.js (via nodesource for recent version)
-    nodejs \
-    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Node.js 20 from NodeSource (bookworm ships 18; @playwright/mcp and other MCP
+# tools now require Node >= 20). Includes npm.
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/* && \
+    node --version
 
 # Install Go
 RUN curl -fsSL https://go.dev/dl/go1.26.4.linux-amd64.tar.gz | tar -C /usr/local -xz
